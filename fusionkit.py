@@ -2,7 +2,7 @@
 # created by gsnoep at 10 May 2021
 # fusionkit is a toolkit of processing tools for fusion experimental and simulation data
 
-### IMPORT ###
+# IMPORT
 from operator import eq
 import sys, os
 from datetime import datetime
@@ -14,7 +14,8 @@ from scipy import interpolate,integrate
 from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
 
-### Utilities ###
+# Utilities
+# general numerical or pythonics utilities
 def number(s):
     try:
         return int(s)
@@ -27,7 +28,9 @@ def find(val, arr,n=1):
     else:
         return list(np.argsort(np.abs(arr-val)))[:n]
 
-### DATASPINE CLASS ###
+# CORE CLASSES
+# core fusionkit framework classes
+## DATASPINE
 class DataSpine:
     def __init__(self,dataspine=None):
         if dataspine is None:
@@ -51,7 +54,7 @@ class DataSpine:
 
         return self
 
-### PLASMA CLASS ###
+## PLASMA
 class Plasma:
     def __init__(self):
         self.metadata = {}
@@ -60,7 +63,7 @@ class Plasma:
         self.equilibrium = Equilibrium()
         self.diagnostics = {}
 
-### EQUILIBRIUM CLASS ###
+## EQUILIBRIUM
 class Equilibrium:
     '''
     Class to handle any and all data related to the magnetic equilibrium in a magnetic confinement fusion device
@@ -829,3 +832,833 @@ class Equilibrium:
         fs['Z_miller'] = fs['Z0']+fs['kappa']*fs['r']*np.sin(fs['theta']+fs['zeta']*np.sin(2*fs['theta']))
         
         return fs
+
+# EXTENSION CLASSES
+# extensions with tools for external codes
+## EX2GK
+class EX2GK:
+    def __init__(self):
+        self.gpr_data = {}
+        self.gpr_data['metadata'] = {}
+    
+    # I/O functions
+    def read(self, fname=None, quantities=None):
+        if fname is None or not os.path.isfile(fname):
+            print('Invalid file or path provided!')
+            return
+        
+        empty_lines = []
+        table_lines = {}
+        
+        file = open(fname, 'r')
+        lines = file.readlines()
+        file.close()
+
+        line_count = 0
+        for line in lines:
+            line_count += 1
+            # If the line_count = 1 note the data type
+            if line_count == 1:
+                self.gpr_data['metadata']['type'] = line.split()[3]
+            # Add the header contents to the metadata section of gpr_data
+            if 'Shot' in line:
+                self.gpr_data['metadata']['shot'] = str([int(s) for s in line.split() if s.isdigit()][0])
+            elif 'Radial' in line:
+                self.gpr_data['metadata']['x'] = line.split()[-1]
+            elif 'Time' in line:
+                if 'time' not in self.gpr_data['metadata']:
+                    self.gpr_data['metadata']['time'] = []
+                self.gpr_data['metadata']['time'].append(np.round(float(line.split()[-2]),2))
+            # If the line is empty add it to the empty_lines list
+            if not line.strip():
+                empty_lines.append(line_count)
+            # If there have been any empty lines, check if the table header on the next line contains one of the requested quantities 
+            if len(empty_lines)>=1 and (line_count)-1 == empty_lines[-1]:
+                for quantity in quantities:
+                    # If the quantity was not already found and the table header contains it, record the line counter
+                    if quantity not in table_lines:
+                        if self.gpr_data['metadata']['type'] == 'Processed':
+                            qstring = 'QLK_'+quantity+' Proc.'
+                        else:
+                            qstring = quantity+' '+self.gpr_data['metadata']['type']
+                        if qstring in line:
+                            table_lines[quantity] = line_count-1
+                            self.gpr_data[quantity] = {}
+
+        for quantity in quantities:
+            if quantity in table_lines:
+                line = table_lines[quantity]
+                line_index = empty_lines.index(line)
+                df = pd.read_csv(fname, delimiter='\\s{2,}', skiprows=line, nrows=(empty_lines[line_index+1]-empty_lines[line_index])-1, engine='python')
+                if self.gpr_data['metadata']['type'] == 'Raw':
+                    df = df.iloc[:,0:5]
+                    df.columns = ['x', 'y', 'y_sigma', 'x_err', 'diagnostic']
+                    #print(df)
+                    for source in list(sorted(set(df['diagnostic']))):
+                        if 'BC' not in source:
+                            if source not in self.gpr_data[quantity]:
+                                #print(source)
+                                self.gpr_data[quantity][source] = []
+                            self.gpr_data[quantity][source] = df[df['diagnostic']==source].sort_values('x').reset_index(drop=True)
+                elif self.gpr_data['metadata']['type'] == 'Fit':
+                    df = df.iloc[:,0:5]
+                    df.columns = ['x', 'y', 'y_sigma', 'dydx', 'dydx_err']
+                    #print(df)
+                    self.gpr_data[quantity] = df
+                elif self.gpr_data['metadata']['type'] == 'Processed':
+                    df.columns = ['x', 'qlk_x', 'y', 'y_sigma']
+                    #print(df)
+                    self.gpr_data[quantity] = df
+        #print(self.gpr_data)
+        if 'TIMP' in self.gpr_data:
+            self.gpr_data['TI'] = self.gpr_data.pop('TIMP')
+        return self.gpr_data
+    
+    # Filter functions
+    def timeavg_filter(input_data=None, quantity_filter=None, source_filter=None):
+        '''
+        This function returns a dataframe containing the time averaged data for all the sources specified in the source_filter list
+
+        :param input_data: a dict of the form raw_data[quantity][source][timeslice]
+
+        :param source_filter: a list of strings indicating which sources to include in the returned time averaged data
+        '''
+        filtered_data = {}
+        # Check that a data structure is provided to be time averaged
+        if input_data != None and isinstance(input_data,dict):
+            raw_data = input_data
+            # If no quantity_filter list is specified, copy all the sources listed in the data structure
+            if quantity_filter == None:
+                quantity_filter = list(raw_data.keys())
+                #print(quantity_filter)
+            # If no source_filter list is specified, copy all the sources listed in the data structure
+            if source_filter == None:
+                source_filter = []
+                for quantity in quantity_filter:
+                    source_list = list(raw_data[quantity].keys())
+                    for source in source_list:
+                        if source not in source_filter:
+                            source_filter.append(source)
+                #print(source_filter)
+                
+            # Assuming the data structure has the raw_data[quantity][source][timeslice]= pandas.dataFrame(columns=['x', 'y', 'y_sigma', 'x_err', 'diagnostic']) structure
+            for quantity in quantity_filter:
+                df_dict = {}
+                #print(raw_data)
+                # Sequence through all the data source by source
+                for source in raw_data[quantity].keys():
+                    if source in source_filter:
+                        # Specify the minimum number of samples in time to use scaling by number of data points in average input variance, does not affect population variance
+                        if len(raw_data[quantity][source]) < 2:
+                            use_n = False
+                        else:
+                            use_n = True
+
+                        source_df = pd.concat(raw_data[quantity][source]).sort_values(by=['x']).reset_index(drop=True)
+                        #print(source_df.to_string())
+                        source_concat = pd.DataFrame(columns=raw_data[quantity][source][0].columns)
+
+                        x_index = 0
+                        x_ref = source_df.iloc[x_index]['x']
+                        while x_ref < source_df.iloc[-1]['x']:
+                            temp_concat = pd.DataFrame(columns=raw_data[quantity][source][0].columns)
+                            #print('first x_ref: '+str(x_ref))
+                            if x_ref < 0.01:
+                                threshold = 50#5
+                            elif x_ref < 0.06:
+                                threshold = 25#3.25
+                            elif x_ref < 0.1:
+                                threshold = 18#2.5
+                            elif x_ref < 0.2:
+                                threshold = 7#2.5
+                            else:
+                                if source == "KG10":
+                                    if x_ref > 1.02:
+                                        threshold = 0.3
+                                    elif x_ref > 1.005:
+                                        threshold = 0.6
+                                    elif x_ref > 0.9:
+                                        threshold = 0.825
+                                    else:
+                                        threshold =3.5#1.5
+                                else:
+                                    if x_ref < 0.27:
+                                        threshold = 1.25
+                                    else:
+                                        threshold = 1.1
+                            while 100*((source_df.iloc[x_index]['x']/x_ref)-1) < threshold and x_index < source_df.shape[0]-1:
+                                temp_concat.loc[temp_concat.shape[0]+1] = source_df.iloc[x_index]
+                                x_index+=1
+                            if temp_concat.shape[0] > 1:
+                                temp_y, temp_yerr, temp_ystdm = ptools.calc_eb_error(list(temp_concat['y']),list(temp_concat['y_sigma']),use_n=use_n)
+                                temp_concat = temp_concat.mean()
+                                temp_concat['y'] = temp_y
+                                temp_concat['y_sigma'] = temp_yerr
+                                temp_concat['diagnostic'] = source
+                            source_concat = source_concat.append(temp_concat,ignore_index=True).reset_index(drop=True)
+                            #print(source_concat)
+                            x_ref = source_df.iloc[x_index]['x']
+
+                        df_dict[source] = source_concat
+                        #if source == 'KG10':
+                        #    print(source_concat.to_string())
+                    else:
+                        print('\t\t'+source+' is not in the source filter list')
+
+                if len(df_dict) > 0:
+                    filtered_data[quantity] = pd.concat(df_dict).sort_values('x')
+                    filtered_data[quantity].reset_index(drop=True,inplace=True)
+                else:
+                    print('\t\tNo sources were selected for '+quantity+'!')
+                #print(str(quantity)+": \n"+pm_data[quantity].to_string())
+                print("\tFiltered custom data for: "+quantity)
+            return filtered_data
+        else:
+            print('No valid input data structure was provided!')
+
+    def copyandpaste_filter(input_data=None, copy_quantity=None, paste_quantity=None, source_filter=None, radial_filter=None):
+        output_data = copy.deepcopy(input_data)
+        if output_data != None and isinstance(output_data,dict):
+            if copy_quantity != None and isinstance(copy_quantity,str) and paste_quantity != None and isinstance(paste_quantity,str):
+                # If no source_filter list is specified, copy all the sources listed in the data structure
+                if source_filter == None:
+                    source_filter = set(output_data[copy_quantity]['diagnostic'])
+                    #print(source_filter)
+                if radial_filter == None:
+                    radial_filter = [0, np.max(pd.Series(output_data[copy_quantity]['x']))]
+                    #print(radial_filter)
+                if output_data[copy_quantity]['diagnostic'].isin(source_filter).any():
+                    #print('Selected diagnostic data is available for copy')
+                    if output_data[copy_quantity]['x'].between(radial_filter[0],radial_filter[1]).any():
+                        #print('Data is available for copy in the selected radial range')
+                        output_data[paste_quantity] = output_data[paste_quantity].append(output_data[copy_quantity][output_data[copy_quantity]['diagnostic'].isin(source_filter) & output_data[copy_quantity]['x'].between(radial_filter[0],radial_filter[1])],ignore_index=True)
+                        output_data[paste_quantity].sort_values(by=['x']).reset_index(drop=True,inplace=True)
+                        #print(output_data[paste_quantity])
+
+                        return output_data
+                    else:
+                        print('No data is available for copy in the selected radial range')
+                else:
+                    print('No data is available for copy for the selected diagnostic')
+
+            else:
+                print('Check proper definition of quantities to be copied and pasted from!')
+        else:
+            print('No valid input data structure was provided!')
+
+    def delete_filter(input_data=None, delete_quantity=None, source_filter=None, radial_filter=None, value_filter=None):
+        output_data = copy.deepcopy(input_data)
+        if output_data != None and isinstance(output_data,dict):
+            if delete_quantity != None and isinstance(delete_quantity,str):
+                # If no source_filter list is specified, copy all the sources listed in the data structure
+                if source_filter == None:
+                    print('No sources were selected to delete data for in the input data structure')
+                if radial_filter == None and value_filter == None:
+                    print('Both no radial range and value range were selected to delete data for in the input data structure')
+                if output_data[delete_quantity]['diagnostic'].isin(source_filter).any():
+                    if radial_filter is not None:
+                        if output_data[delete_quantity]['x'].between(radial_filter[0],radial_filter[1]).any():
+                            output_data[delete_quantity] = output_data[delete_quantity].drop(output_data[delete_quantity][output_data[delete_quantity]['diagnostic'].isin(source_filter) & output_data[delete_quantity]['x'].between(radial_filter[0],radial_filter[1])].index)
+                            output_data[delete_quantity].sort_values(by=['x']).reset_index(drop=True,inplace=True)
+                            return output_data
+
+                    elif value_filter is not None:
+                        if output_data[delete_quantity]['y'].between(value_filter[0],value_filter[1]).any():
+                            output_data[delete_quantity] = output_data[delete_quantity].drop(output_data[delete_quantity][output_data[delete_quantity]['diagnostic'].isin(source_filter) & output_data[delete_quantity]['y'].between(value_filter[0],value_filter[1])].index)
+                            output_data[delete_quantity].sort_values(by=['x']).reset_index(drop=True,inplace=True)
+                            return output_data
+                    else:
+                        print('No data is available for deletion in the selected radial range')
+                else:
+                    print('No data is available for deletion for the selected diagnostics for quantity: '+delete_quantity)
+
+            else:
+                print('Check proper definition of quantities to be deleted!')
+        else:
+            print('No valid input data structure was provided!')
+
+## GENE
+class GENE:
+    def __init__(self):
+        self.input = {}
+        self.output = {}
+    
+    # I/O functions
+    def write_input(rho=None,dataset=None,gene_config=None,diagdir=None,fname=None,imp_composite=False):
+        m_e = 9.109390E-31
+        m_p = 1.672623E-27
+
+        rho_idx = np.abs(dataset['rho']-rho).argmin()
+
+        ne = dataset['ne'][rho_idx]*1e-19
+        RLne = dataset['RLne'][rho_idx]
+        ni = dataset['ni'][rho_idx]*1e-19
+        RLni = dataset['RLni'][rho_idx]
+        A_i = 2
+        Z_i = 1
+
+        Te = dataset['Te'][rho_idx]*1e-3
+        RLTe = dataset['RLTe'][rho_idx]
+        Ti = dataset['Ti'][rho_idx]*1e-3
+        RLTi = dataset['RLTi'][rho_idx]
+
+        n_LZ = dataset['n_LZ'][rho_idx]*1e-19
+        RLn_LZ = dataset['RLn_LZ'][rho_idx]
+        A_LZ = 9
+        Z_L = dataset['Z_L']
+
+        if imp_composite:
+            n_comp = dataset['n_comp'][rho_idx]*1e-19
+            RLn_comp = dataset['RLn_comp'][rho_idx]
+            A_comp = dataset['A_comp'][rho_idx]
+            Z_comp = dataset['Z_comp'][rho_idx]
+
+        q = dataset['q'][rho_idx]
+        s = dataset['s'][rho_idx]
+        alpha = dataset['alpha'][rho_idx]
+        beta = dataset['beta'][rho_idx]
+        trpeps = dataset['trpeps'][rho_idx]
+        Ro = dataset['Ro'][rho_idx]
+        R0 = dataset['R0']
+        B0 = dataset['B0']
+
+        ## Species namelist
+        species_nl = {
+            "nl_name" : "species",
+            'electrons' : {
+                "nl_name" : "species",
+                "name" : "'electrons'",
+                "mass" : m_e/(A_i*m_p),
+                "charge" : -1,
+                "temp" : 1.0,
+                "dens" : 1.0,
+                "omt" : RLTe,
+                "omn" : RLne,
+            },
+            'main_ion' : {
+                "nl_name" : "species",
+                "name" : "'deuterium'",
+                "mass" : 1.0,
+                "charge" : Z_i,
+                "temp" : Ti/Te,
+                "dens" : ni/ne,
+                "omt" : RLTi,
+                "omn" : RLni,
+            },
+            'impurity_1' : {
+                "nl_name" : "species",
+                "name" : "'beryllium'",
+                "mass" : A_LZ/A_i,
+                "charge" : Z_L,
+                "temp" : Ti/Te,
+                "dens" : n_LZ/ne,
+                "omt" : RLTi,
+                "omn" : RLn_LZ,
+            },
+        }
+        if imp_composite:
+            species_nl['impurity_2'] = {
+                "nl_name" : "species",
+                "name" : "'composite'",
+                "mass" : A_comp/A_i,
+                "charge" : Z_comp,
+                "temp" : Ti/Te,
+                "dens" : n_comp/ne,
+                "omt" : RLTi,
+                "omn" : RLn_comp,
+            }
+
+        ## Parallelization namelist
+        parallel_nl = {
+            "nl_name" : "parallelization", 
+        }
+        if gene_config['solver_type'] == 'IV':
+            parallel_nl["n_parallel_sims"] = 2
+        if gene_config['solver_type'] == 'EV':
+            parallel_nl["n_parallel_sims"] = 8
+
+        ## Box namelist
+        box_nl = {
+            "nl_name" : "box",
+            "n_spec" : len(species_nl.keys())-1,
+            "nx0" : gene_config['nx0'],
+            "nky0" : 1,
+            "nz0" : gene_config['nz0'],
+            "nv0" : gene_config['nv0'],
+            "nw0" : gene_config['nw0'],
+            "kymin" : gene_config['kymin'],
+            "lv" : gene_config['lv'],
+            "lw" : gene_config['lw'],
+            "mu_grid_type" : "'gau_lag'",
+            "n0_global" : -1111,
+        }
+
+        ## I/O namelist
+        io_nl = {
+            "nl_name" : "in_out",
+            "diagdir" : diagdir,
+            "read_checkpoint" : '.F.',
+            "istep_nrg" : 10,
+            "istep_field" : 200,
+            "istep_mom" : 400,
+            "istep_energy" : 500,
+            "istep_vsp" : 500,
+            "istep_schpt" : 0,
+        }
+
+        ## General namelist
+        general_nl = {
+            "nl_name" : "general", 
+            "nonlinear" : '.F.',
+        }
+        if gene_config['solver_type'] == 'IV':
+            general_nl["comp_type"] = "'IV'"
+        elif gene_config['solver_type'] == 'EV':
+            general_nl["comp_type"] = "'EV'"
+            general_nl["which_ev"] = "'mfn'"
+            general_nl["n_ev"] = 2
+            general_nl["taumfn"] = 0.2
+        general_nl.update(
+            {"calc_dt" : '.T.',
+            "simtimelim" : 10000.0,
+            "timelim" : 43200,
+            "collision_op" : gene_config['coll_op'],
+            "coll_on_h" : '.T.',
+            "coll_f_fm_on" : '.T.',
+            "coll_cons_model" : "'self_adj'",
+            "coll" : gene_config['coll'],
+            }
+        )
+        if gene_config['beta']:
+            general_nl.update({"beta" : beta})
+        general_nl.update(
+            {"bpar" : '.F.',
+            "debye2" : -1,
+            "hyp_z" : gene_config['hyp_z'],
+            "init_cond" : "'alm'",}
+        )
+
+        ## External contribution namelist
+        external_nl = {
+            "nl_name" : "external_contr",
+        }
+
+        ## Geometry namelist
+        geo_nl = {
+            "nl_name" : "geometry",
+            "magn_geometry" : "'s_alpha'",
+            "trpeps" : str(trpeps)+" ! rho = "+str(rho),
+            "q0" : q,
+            "shat" : s,
+            "major_R" : Ro/R0,
+            "amhd" : alpha,
+            "norm_flux_projection" : '.F.',
+            "rhostar" : -1,
+            "dpdx_term" : "'full_drift'",
+            "dpdx_pm" : -1,
+        }
+
+        ## Info namelist
+        info_nl = {
+            "nl_name" : "info",
+        }
+
+        ## Units namelist
+        units_nl = {
+            "nl_name" : "units",
+            "Tref" : Te,
+            "nref" : ne,
+            "Bref" : B0,
+            "Lref" : R0,
+            "mref" : A_i,
+            "omegatorref" : 0,
+        }
+
+        ## Complete GENE namelist
+        gene_nl = {
+            'meta' : {
+                "path" : "./",
+                "file" : fname,
+            },
+            'parallel' : parallel_nl,
+            'box' : box_nl,
+            'io' : io_nl,
+            'general' : general_nl,
+            'external' : external_nl,
+            'geo' : geo_nl,
+            'species' : species_nl,
+            'info' : info_nl,
+            'units' : units_nl
+        }
+
+        ## Print GENE namelist parameters.dat file
+        for i in gene_nl.keys():
+            if i == 'meta':
+                pathlib.Path(gene_nl['meta']["path"]).mkdir(parents=True, exist_ok=True)
+                f = open(gene_nl['meta']["path"]+gene_nl['meta']["file"],"w+")
+            elif len(gene_nl[i].keys()) > 1:
+                if gene_nl[i]['nl_name'] != "species":
+                    #print("&{}".format(gene_nl[i]['nl_name']))
+                    f.write("&{}\n".format(gene_nl[i]['nl_name']))
+                    gene_nl[i].pop('nl_name')
+                    for key,value in gene_nl[i].items():
+                        #print("{} = {}".format(key,value))
+                        f.write("{} = {}\n".format(key,value))
+                    #print("/\n")
+                    f.write("/\n\n")
+                else:
+                    gene_nl[i].pop('nl_name')
+                    for key,value in gene_nl[i].items():
+                        #print("&{}".format(gene_nl[i][key]['nl_name']))
+                        f.write("&{}\n".format(gene_nl[i][key]['nl_name']))
+                        gene_nl[i][key].pop('nl_name')
+                        for k,v in gene_nl[i][key].items():
+                            #print("{} = {}".format(k,v))
+                            f.write("{} = {}\n".format(k,v))
+                        #print("/\n")
+                        f.write("/\n\n")
+        f.close()
+        print('Generated GENE input file at: '+gene_nl['meta']["path"]+gene_nl['meta']["file"])
+
+## JET_PPF
+class JET_PPF:
+    def __init__(self):
+        self.data = {}
+
+## TGLF
+class TGLF:
+    def __init__(self):
+        self.metadata = {}
+        self.input = {}
+        self.output = {}
+    
+    # I/O functions
+    def write_inputs(fname=None,path=None,control=None,species=None,gaussian=None,geometry=None,expert=None):
+        # default values for TGLF input namelists
+        header_params = {
+            'name':'input.tglf',
+            'message':'See https://gafusion.github.io/doc/tglf/tglf_table.html'
+        }
+        control_params = {
+            'name':'Control paramters',
+            'UNITS':'GYRO',
+            'NS':len(species),
+            'USE_TRANSPORT_MODEL':True,
+        }
+        if geometry['name']=='s-alpha':
+            control_params.update({'GEOMETRY_FLAG':0})
+        elif geometry['name']=='miller' or geometry == None:
+            control_params.update({'GEOMETRY_FLAG':1})
+        elif geometry['name']=='fourier':
+            control_params.update({'GEOMETRY_FLAG':2})
+        elif geometry['name']=='elite':
+            control_params.update({'GEOMETRY_FLAG':3}) 
+        control_params.update(
+            {
+                'USE_BPER':False,
+                'USE_BPAR':False,
+                'USE_MHD_RULE':False,
+                'USE_BISECTION':True,
+                'USE_INBOARD_DETRAPPED':False,
+                'SAT_RULE':2,
+                'KYGRID_MODEL':0,
+                'XNU_MODEL':2,
+                'VPAR_MODEL':0,
+                'VPAR_SHEAR_MODEL':1,
+                'SIGN_BT':1.0,
+                'SIGN_IT':1.0,
+                'KY':None,
+                'NEW_EIKONAL':True,
+                'VEXB':0.0,
+                'VEXB_SHEAR':0.0,
+                'BETAE': None,
+                'XNUE':None,
+                'ZEFF':None,
+                'DEBYE':None,
+                'IFLUX':True,
+                'IBRANCH':-1,
+                'NMODES':2,
+                'NBASIS_MAX':4,
+                'NBASIS_MIN':2,
+                'NXGRID':16,
+                'NKY':12,
+                'ADIABATIC_ELEC':False,
+                'ALPHA_MACH':0.0,
+                'ALPHA_E':1.0,
+                'ALPHA_P':1.0,
+                'ALPHA_QUENCH':1.0,
+                'ALPHA_ZF':1.0,
+                'XNU_FACTOR':1.0,
+                'DEBYE_FACTOR':1.0,
+                'ETG_FACTOR':1.25,
+                'WRITE_WAVEFUNCTION_FLAG':1,
+            }
+        )
+        species_vector = {
+            'ZS':None,
+            'MASS':None,
+            'RLNS':None,
+            'RLTS':None,
+            'TAUS':None,
+            'AS':None,
+            'VPAR':None,
+            'VPAR_SHEAR':None,
+            'VNS_SHEAR':None,
+            'VTS_SHEAR':None,
+        }
+        species_params = {
+            # values need to be specified as a nested dict of species vectors according to the above species vector format!
+            'name':'Species vectors',
+        }
+        gaussian_params = {
+            # all values at default
+            'name':'Gaussian width parameters',
+            'WIDTH':1.65,
+            'WIDTH_MIN':0.3,
+            'NWIDTH':21,
+            'FIND_WIDTH':True,
+        }
+        geometry_params = {
+            'miller':{
+                # values need to be specified!
+                'name':'Miller geometry parameters',
+                'RMIN_LOC':None,
+                'RMAJ_LOC':None,
+                'ZMAJ_LOC':None,
+                'DRMINDX_LOC':None,
+                'DRMAJDX_LOC':None,
+                'DZMAJDX_LOC':None,
+                'Q_LOC':None,
+                'KAPPA_LOC':None,
+                'S_KAPPA_LOC':None,
+                'DELTA_LOC':None,
+                'S_DELTA_LOC':None,
+                'ZETA_LOC':None,
+                'S_ZETA_LOC':None,
+                'P_PRIME_LOC':None,
+                'Q_PRIME_LOC':None,
+                'KX0_LOC':None,
+            },
+            's-alpha':{
+                # values need to be specified!
+                'name':'s-alpha geometry parameters',
+                'RMIN_SA':None,
+                'RMAJ_SA':None,
+                'Q_SA':None,
+                'SHAT_SA':None,
+                'ALPHA_SA':None,
+                'XWELL_SA':None,
+                'THETA0_SA':None,
+                'B_MODEL_SA':None,
+                'FT_MODEL_SA':None,
+            }
+        }
+
+        expert_params = {
+            # all values at default
+            'name':'Expert parameters',
+            'DAMP_PSI':0.0,
+            'DAMP_SIG':0.0,
+            'PARK':1.0,
+            'GHAT':1.0,
+            'GCHAT':1.0,
+            'WD_ZERO':0.1,
+            'LINSKER_FACTOR':0.0,
+            'GRADB_FACTOR':0.0,
+            'FILTER':2.0,
+            'THETA_TRAPPED':0.7,
+            'NN_MAX_ERROR':-1.0,
+        }
+
+        # modify the different parameter namelists with custom inputs
+        if control != None:
+            for key in control:
+                control_params[key] = control[key]
+            for key in control_params:
+                    if control_params[key]==None:
+                        exit("Control parameter: '"+key+"' has not been specified, please check your inputs!")
+        if species != None:
+            for key in species_vector:
+                for index in species:
+                    if key in species[index]:
+                        species_params[key+'_'+str(index)] = species[index][key]
+                    else:
+                        species_params[key+'_'+str(index)] = 0.0
+        else:
+            exit('No species information specified!')
+        if gaussian != None:
+            for key in gaussian:
+                gaussian_params[key] = gaussian[key]
+        if geometry != None:
+            if geometry['name']=='miller':
+                for key in geometry:
+                    if key != 'name':
+                        geometry_params[geometry['name']][key] = geometry[key]
+                for key in geometry_params[geometry['name']]:
+                    if geometry_params[geometry['name']][key]==None:
+                        exit(geometry['name']+" parameter: '"+key+"' has not been specified, please check your geometry inputs!")   
+        if expert != None:
+            for key in expert:
+                expert_params[key] = expert[key]
+
+        tglf_namelist = {
+            'meta' : {
+                "file":fname,
+            },
+            'header':header_params,
+            'control':control_params,
+            'species':species_params,
+            'gaussian':gaussian_params,
+            'geometry':geometry_params[geometry['name']],
+            'expert':expert_params,
+        }
+        if path == None:
+            tglf_namelist['meta'].update({'path':"./",})
+        elif isinstance(path,str):
+            tglf_namelist['meta'].update({'path':path,})
+        else:
+            exit("Invalid path string provided!")
+
+        spacer = '#---------------------------------------------------\n'
+        for namelist in tglf_namelist:
+            if namelist == 'meta':
+                if tglf_namelist[namelist]['file'] != None:
+                    pathlib.Path(tglf_namelist[namelist]["path"]).mkdir(parents=True, exist_ok=True)
+                    f = open(tglf_namelist[namelist]["path"]+tglf_namelist[namelist]["file"],"w+")
+                    generated_file = True
+                else:
+                    exit('File name not specified!')
+            elif namelist == 'header':
+                for key in tglf_namelist[namelist]:
+                    f.write('# '+tglf_namelist[namelist][key]+'\n')
+            elif namelist != 'meta' and namelist != 'header':
+                f.write(spacer)
+                f.write('# '+tglf_namelist[namelist]['name']+'\n')
+                f.write(spacer)
+                for key in tglf_namelist[namelist]:
+                    if key != 'name':
+                        f.write("{}={}\n".format(key,tglf_namelist[namelist][key]))
+                if namelist != 'expert':
+                    f.write('\n')
+        f.close()
+        if generated_file:
+            print('Generated TGLF input file at: '+tglf_namelist['meta']["path"]+tglf_namelist['meta']["file"])
+
+## QuaLiKiz
+class QLK:
+    def __init__(self):
+        self.metadata = {}
+        self.input = {}
+        self.output = {}
+    
+    # I/O functions
+    def write_input(rho=None,dataset=None,output_loc=None,fname=None,imp_composite=False):
+        rho_idx = np.abs(dataset['rho']-rho).argmin()
+
+        ne = dataset['ne'][rho_idx]*1e-19
+        RLne = dataset['RLne'][rho_idx]
+        ni = dataset['ni'][rho_idx]*1e-19
+        RLni = dataset['RLni'][rho_idx]
+        A_i = 2
+        Z_i = 1
+
+        n_LZ = dataset['n_LZ'][rho_idx]*1e-19
+        RLn_LZ = dataset['RLn_LZ'][rho_idx]
+        A_LZ = 9
+        Z_L = dataset['Z_L']
+
+        if imp_composite:
+            n_comp = dataset['n_comp'][rho_idx]*1e-19
+            RLn_comp = dataset['RLn_comp'][rho_idx]
+            A_comp = dataset['A_comp'][rho_idx]
+            Z_comp = dataset['Z_comp'][rho_idx]
+
+        Te = dataset['Te'][rho_idx]*1e-3
+        RLTe = dataset['RLTe'][rho_idx]
+        Ti = dataset['Ti'][rho_idx]*1e-3
+        RLTi = dataset['RLTi'][rho_idx]
+
+        q = dataset['q'][rho_idx]
+        s = dataset['s'][rho_idx]
+        B0 = dataset['B0']
+
+        alpha = dataset['alpha'][rho_idx]
+        a = dataset['a']
+        x = dataset['x'][rho_idx]
+        Ro = dataset['Ro'][rho_idx]
+        R0 = dataset['R0']
+
+        Mach_tor = 0
+        Au_tor = 0
+        Mach_par = 0
+        Au_par = 0
+        gamma_E = 0
+
+        ## QuaLiKiz input preparation
+        from qualikiz_tools.qualikiz_io.inputfiles import QuaLiKizXpoint, Electron, Ion, IonList
+        from qualikiz_tools.qualikiz_io.inputfiles import QuaLiKizPlan
+
+        kthetarhos = list(np.linspace(0.1,0.8,8))
+        elec = Electron(T=Te,n=ne,At=RLTe,An=RLne,type=1,anis=1, danisdr=0)
+        ion0 = Ion(T=Ti,n=ni,At=RLTi,An=RLni,A=A_i,Z=Z_i,type=1,anis=1,danisdr=0)
+        ion1 = Ion(T=Ti,n=n_LZ,At=RLTi,An=RLn_LZ,A=A_LZ,Z=Z_L,type=1,anis=1,danisdr=0)
+        if imp_composite:
+            ion2 = Ion(T=Ti,n=n_comp,At=RLTi,An=RLn_comp,A=A_comp,Z=Z_comp,type=1,anis=1,danisdr=0)
+            ions = IonList(ion0,ion1,ion2)
+        else:
+            ions = IonList(ion0,ion1)
+
+        meta = {
+            "phys_meth": 1,
+            "coll_flag": 1,
+            "rot_flag": 0,
+            "verbose": True,
+            "separateflux": False,
+            "write_primi": True,
+            "numsols": 2,
+            "relacc1": 0.00001,
+            "relacc2": 0.0002,
+            "absacc1": 0,
+            "absacc2": 0,
+            "integration_routine": 1,
+            "maxruns": 1,
+            "maxpts": 500000000.0,
+            "timeout": 60,
+            "ETGmult": 1,
+            "collmult": 0.5,
+            "R0": R0
+        }
+        spatial = {
+            "x": x,
+            "rho": rho,
+            "Ro": Ro,
+            "Rmin": a,
+            "Bo": B0,
+            "q": q,
+            "smag": s,
+            "alpha": alpha,
+            "Machtor": Mach_tor,
+            "Autor": Au_tor,
+            "Machpar": Mach_par, 
+            "Aupar": Au_par,
+            "gammaE": gamma_E
+        }
+        options = {
+            "set_qn_normni": True,
+            "set_qn_normni_ion": 0,
+            "set_qn_An": True,
+            "set_qn_An_ion": 0,
+            "check_qn": True,
+            "x_eq_rho": True,
+            "recalc_Nustar": False,
+            "recalc_Ti_Te_rel": False,
+            "assume_tor_rot": True,
+            "puretor_abs_var": "Machtor",
+            "puretor_grad_var": "gammaE"
+        }
+
+        xpoint_base = QuaLiKizXpoint(**meta, kthetarhos=kthetarhos, electrons=elec, ions=ions, **spatial, **options)
+
+        scan_dict = {'Ate': [xpoint_base['Ate']]}
+        plan = QuaLiKizPlan(scan_dict=scan_dict,scan_type='hyperedge',xpoint_base=xpoint_base)
+        plan.to_json(output_loc+fname)
