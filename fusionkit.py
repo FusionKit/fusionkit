@@ -3,12 +3,10 @@
 # fusionkit is a toolkit of processing tools for fusion experimental and simulation data
 
 # IMPORT
-from operator import eq
 import sys, os
 from datetime import datetime
 import re, copy, pathlib, json, codecs
 import numpy as np
-from numpy.lib.function_base import append
 import pandas as pd
 from scipy import interpolate,integrate
 from scipy.signal import savgol_filter
