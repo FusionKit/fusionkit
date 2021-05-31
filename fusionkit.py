@@ -21,10 +21,14 @@ def number(s):
         return float(s)
 
 def find(val, arr,n=1):
-    if n == 1:
-        return np.argsort(np.abs(arr-val))[0]
+    if isinstance(arr,list):
+        arr_ = np.array(arr)
     else:
-        return list(np.argsort(np.abs(arr-val)))[:n]
+        arr_ = arr
+    if n == 1:
+        return np.argsort(np.abs(arr_-val))[0]
+    else:
+        return list(np.argsort(np.abs(arr_-val)))[:n]
 
 # CORE CLASSES
 # core fusionkit framework classes
@@ -62,7 +66,7 @@ class Plasma:
         self.diagnostics = {}
         self.dataset = {}
     
-    def construct_plasma(self,tokamak=None,shot=None,imp_rescale=False,imp_composite=False,imp_sertoli=False):
+    def construct_plasma(self,tokamak=None,shot=None,imp_rescale=False,imp_composite=False,imp_sertoli=False,miller=False,gyro=False):
         ## Data location variables
         ppf_loc = "../Data/"+tokamak+"_"+shot+"/PPF/"
         gpr_loc = "../Data/"+tokamak+"_"+shot+"/GPR/"
@@ -112,10 +116,25 @@ class Plasma:
 
         dataset['q'] = interpolate.interp1d(rho_esco,JET_PPF.read_file(ppf_loc+"dataQ.dat"),kind='quadratic',fill_value='extrapolate')(dataset['rho'])
         #sh = JET_PPF.read_file(ppf_loc+"dataSH.dat",data_only=False)
-        dataset['B0'] = JET_PPF.read_file(ppf_loc+"dataBTOR.dat")
-        if self.equilibrium and self.equilibrium.fluxsurfaces:
-            dataset['B0_miller'] = interpolate.interp1d(self.equilibrium.derived['rho_tor'],self.equilibrium.derived['Bref_miller'])(dataset['rho'])
-            dataset['B0_gyro'] = interpolate.interp1d(self.equilibrium.derived['rho_tor'],self.equilibrium.derived['B_unit'])(dataset['rho'])
+        if miller:
+            if self.equilibrium and self.equilibrium.fluxsurfaces:
+                dataset['q'] = interpolate.interp1d(self.equilibrium.derived['rho_tor'],self.equilibrium.raw['qpsi'],bounds_error=False)(dataset['rho'])
+                dataset['B0'] = interpolate.interp1d(self.equilibrium.derived['rho_tor'],self.equilibrium.derived['Bref_miller'],bounds_error=False)(dataset['rho'])
+                dataset['kappa'] = interpolate.interp1d(self.equilibrium.derived['rho_tor'],self.equilibrium.derived['kappa'],bounds_error=False)(dataset['rho'])
+                dataset['delta'] = interpolate.interp1d(self.equilibrium.derived['rho_tor'],self.equilibrium.derived['delta'],bounds_error=False)(dataset['rho'])
+                dataset['zeta'] = interpolate.interp1d(self.equilibrium.derived['rho_tor'],self.equilibrium.derived['zeta'],bounds_error=False)(dataset['rho'])
+                dataset['s_kappa'] = interpolate.interp1d(self.equilibrium.derived['rho_tor'],self.equilibrium.derived['s_kappa'],bounds_error=False)(dataset['rho'])
+                dataset['s_delta'] = interpolate.interp1d(self.equilibrium.derived['rho_tor'],self.equilibrium.derived['s_delta'],bounds_error=False)(dataset['rho'])
+                dataset['s_zeta'] = interpolate.interp1d(self.equilibrium.derived['rho_tor'],self.equilibrium.derived['s_zeta'],bounds_error=False)(dataset['rho'])
+                dataset['dRodr'] = interpolate.interp1d(self.equilibrium.derived['rho_tor'],self.equilibrium.derived['dRodr'],bounds_error=False)(dataset['rho'])
+                dataset['dZodr'] = interpolate.interp1d(self.equilibrium.derived['rho_tor'],self.equilibrium.derived['dZodr'],bounds_error=False)(dataset['rho'])
+                dataset['zeta'] = interpolate.interp1d(self.equilibrium.derived['rho_tor'],self.equilibrium.derived['zeta'],bounds_error=False)(dataset['rho'])
+        elif gyro:
+            if self.equilibrium and self.equilibrium.fluxsurfaces:
+                dataset['B0'] = interpolate.interp1d(self.equilibrium.derived['rho_tor'],self.equilibrium.derived['B_unit'])(dataset['rho'])
+        else:
+            #dataset['B0'] = JET_PPF.read_file(ppf_loc+"dataBTOR.dat")
+            dataset['B0'] = self.equilibrium.derived['Bref_eqdsk']
 
         #rho_pm = JET_PPF.read_sertoli(ppf_loc, 'dataRHO_PM.dat', t_slices=5, interp=False, value_only=True, header=2)
         #rho_pm_filter = [not bool for bool in np.isinf(rho_pm)]
@@ -180,7 +199,7 @@ class Plasma:
         dataset['trpeps'] = interpolate.interp1d(rho_esco,trpeps,kind='quadratic',fill_value='extrapolate')(dataset['rho'])
 
         # Physics quantities
-        dataset['s'] = interpolate.interp1d(rho_esco,r*np.gradient(np.log(JET_PPF.read_file(ppf_loc+"dataQ.dat")),r,edge_order=2),kind='quadratic',fill_value='extrapolate')(dataset['rho'])
+        dataset['s'] = interpolate.interp1d(rho_esco,r*np.gradient(np.log(JET_PPF.read_file(ppf_loc+"dataQ.dat")),r,edge_order=2),fill_value='extrapolate')(dataset['rho'])
         #dataset['sh'] = interpolate.interp1d(rho_esco,rtor*np.gradient(np.log(JET_PPF.read_file(ppf_loc+"dataQ.dat")),rtor,edge_order=2),kind='quadratic',fill_value='extrapolate')(dataset['rho'])                                                                               # midplane-averaged magnetic shear
         
         dataset['Z_comp'] = (np.round(((n_MZ*Z_M**2)+(n_HZ*Z_H**2))/(n_MZ*Z_M+n_HZ*Z_H))).astype(int)                                       # atomic number composite impurity species
@@ -218,11 +237,7 @@ class Plasma:
         beta_i = 2*pi*mu0/(dataset['B0']**2)
         beta_LZ = 2*pLZ*mu0/(dataset['B0']**2)
         dataset['beta'] = beta_e+beta_i+beta_LZ
-
-        beta_e_miller = 2*pe*mu0/(dataset['B0_miller']**2)
-        beta_i = 2*pi*mu0/(dataset['B0']**2)
-        beta_LZ = 2*pLZ*mu0/(dataset['B0']**2)
-        dataset['beta'] = beta_e+beta_i+beta_LZ
+        dataset['beta_e'] = beta_e
 
         if imp_composite:
             beta_comp = 2*pcomp*mu0/(dataset['B0']**2)
@@ -234,11 +249,21 @@ class Plasma:
         dataset['RLne'] = -(R0/dataset['ne'])*np.gradient(dataset['ne'],dataset['r'])
         dataset['RLni'] = -(R0/dataset['ni'])*np.gradient(dataset['ni'],dataset['r'])
         dataset['RLn_LZ'] = -(R0/dataset['n_LZ'])*np.gradient(dataset['n_LZ'],dataset['r'])
+
+        # Normalised logarithmic gradients
+        dataset['aLTe'] = -(a/dataset['Te'])*np.gradient(dataset['Te'],dataset['r'])
+        dataset['aLTi'] = -(a/dataset['Ti'])*np.gradient(dataset['Ti'],dataset['r'])
+        dataset['aLne'] = -(a/dataset['ne'])*np.gradient(dataset['ne'],dataset['r'])
+        dataset['aLni'] = -(a/dataset['ni'])*np.gradient(dataset['ni'],dataset['r'])
+        dataset['aLn_LZ'] = -(a/dataset['n_LZ'])*np.gradient(dataset['n_LZ'],dataset['r'])
+
         if imp_composite:
             dataset['RLn_comp'] = ((dataset['ne']*dataset['RLne'])-(dataset['ni']*dataset['RLni'])-(dataset['n_LZ']*dataset['Z_L']*dataset['RLn_LZ']))/(dataset['n_comp']*dataset['Z_comp'])
+            dataset['aLn_comp'] = ((dataset['ne']*dataset['aLne'])-(dataset['ni']*dataset['aLni'])-(dataset['n_LZ']*dataset['Z_L']*dataset['aLn_LZ']))/(dataset['n_comp']*dataset['Z_comp'])
             #print("quasi-neutrality gradient check: "+str(dataset['ne']*dataset['RLne']-(dataset['ni']*dataset['RLni'])-(dataset['n_LZ']*dataset['Z_L']*dataset['RLn_LZ'])-(dataset['n_comp']*dataset['Z_comp']*dataset['RLn_comp'])))
         else:
             dataset['RLn_LZ'] = ((dataset['ne']*dataset['RLne'])-(dataset['ni']*dataset['RLni']))/(dataset['n_LZ']*dataset['Z_L'])
+            dataset['aLn_LZ'] = ((dataset['ne']*dataset['aLne'])-(dataset['ni']*dataset['aLni']))/(dataset['n_LZ']*dataset['Z_L'])
             #print("quasi-neutrality gradient check: "+str(dataset['ne']*dataset['RLne']-(dataset['ni']*dataset['RLni'])-(dataset['n_LZ']*dataset['Z_L']*dataset['RLn_LZ'])))
         
         if imp_composite:
@@ -615,9 +640,12 @@ class Equilibrium:
             
             # add the flux surface data for rho_tor > 0
             for rho_fs in derived['rho_tor'][1:]:
+                sys.stdout.write('\r {}% completed'.format(round(100*(find(rho_fs,derived['rho_tor'][1:])+1)/len(derived['rho_tor'][1:]))))
+                sys.stdout.flush()
                 # check that rho stays inside the lcfs
                 if rho_fs < 0.999:
                     self.fluxsurface_find(x_fs=rho_fs,psiRZ=raw['psiRZ'],R=derived['R'],Z=derived['Z'],incl_miller_geo=incl_miller_geo,return_self=True)
+            sys.stdout.write('\n')
 
             # find the geometric center, minor radius and extrema of the lcfs manually
             lcfs = self.fluxsurface_center(psi_fs=raw['psisep'],R_fs=raw['Rbbbs'],Z_fs=raw['Zbbbs'],psiRZ=raw['psiRZ'],R=derived['R'],Z=derived['Z'],incl_extrema=True)
@@ -670,9 +698,9 @@ class Equilibrium:
 
             # add several magnetic field quantities to derived
             derived['Bref_eqdsk'] = raw['fpol'][0]/raw['Rmag']
-            derived['Bref_miller'] = (interpolate.interp1d(np.hstack((derived['R_psi_hfs'],derived['R_psi_lfs'])),np.hstack((raw['fpol'][::-1],raw['fpol'])))(derived['Ro']))/derived['Ro']
-            derived['B_unit'] = interpolate.interp1d(derived['r'],(1/derived['r'])*np.gradient(derived['phi'],derived['r'],edge_order=2))(derived['r'])
-            #derived['B_unit'] = interpolate.interp1d(derived['r'],(raw['qpsi']/derived['r'])*np.gradient(derived['psi'],derived['r']))(derived['r'])
+            derived['Bref_miller'] = raw['fpol']/derived['Ro']
+            #derived['B_unit'] = interpolate.interp1d(derived['r'],(1/derived['r'])*np.gradient(derived['phi'],derived['r'],edge_order=2))(derived['r'])
+            derived['B_unit'] = interpolate.interp1d(derived['r'],(raw['qpsi']/derived['r'])*np.gradient(derived['psi'],derived['r']))(derived['r'])
             
             if incl_miller_geo:
                 # add the symmetrised flux surface trace arrays to derived
@@ -1266,47 +1294,84 @@ class EX2GK:
 ## GENE
 class GENE:
     def __init__(self):
+        self.metadata = {}
         self.input = {}
         self.output = {}
     
     # I/O functions
-    def write_input(rho=None,dataset=None,gene_config=None,diagdir=None,fname=None,imp_composite=False):
+    def write_input(self,rho=None,dataset=None,gene_config=None,diagdir=None,fname=None,imp_composite=False,miller=False):
         m_e = 9.109390E-31
         m_p = 1.672623E-27
 
         rho_idx = np.abs(dataset['rho']-rho).argmin()
 
-        ne = dataset['ne'][rho_idx]*1e-19
-        RLne = dataset['RLne'][rho_idx]
-        ni = dataset['ni'][rho_idx]*1e-19
-        RLni = dataset['RLni'][rho_idx]
-        A_i = 2
-        Z_i = 1
+        if miller:
+            ne = dataset['ne'][rho_idx]*1e-19
+            RLne = dataset['aLne'][rho_idx]
+            ni = dataset['ni'][rho_idx]*1e-19
+            RLni = dataset['aLni'][rho_idx]
+            A_i = 2
+            Z_i = 1
 
-        Te = dataset['Te'][rho_idx]*1e-3
-        RLTe = dataset['RLTe'][rho_idx]
-        Ti = dataset['Ti'][rho_idx]*1e-3
-        RLTi = dataset['RLTi'][rho_idx]
+            Te = dataset['Te'][rho_idx]*1e-3
+            RLTe = dataset['aLTe'][rho_idx]
+            Ti = dataset['Ti'][rho_idx]*1e-3
+            RLTi = dataset['aLTi'][rho_idx]
 
-        n_LZ = dataset['n_LZ'][rho_idx]*1e-19
-        RLn_LZ = dataset['RLn_LZ'][rho_idx]
-        A_LZ = 9
-        Z_L = dataset['Z_L']
+            n_LZ = dataset['n_LZ'][rho_idx]*1e-19
+            RLn_LZ = dataset['aLn_LZ'][rho_idx]
+            A_LZ = 9
+            Z_L = dataset['Z_L']
+            B0 = dataset['B0'][rho_idx]
 
-        if imp_composite:
-            n_comp = dataset['n_comp'][rho_idx]*1e-19
-            RLn_comp = dataset['RLn_comp'][rho_idx]
-            A_comp = dataset['A_comp'][rho_idx]
-            Z_comp = dataset['Z_comp'][rho_idx]
+            if imp_composite:
+                n_comp = dataset['n_comp'][rho_idx]*1e-19
+                RLn_comp = dataset['aLn_comp'][rho_idx]
+                A_comp = dataset['A_comp'][rho_idx]
+                Z_comp = dataset['Z_comp'][rho_idx]
+            
+            kappa = dataset['kappa'][rho_idx]
+            delta = dataset['delta'][rho_idx]
+            zeta = dataset['zeta'][rho_idx]
+            s_kappa = dataset['s_kappa'][rho_idx]
+            s_delta = dataset['s_delta'][rho_idx]
+            s_zeta = dataset['s_zeta'][rho_idx]
+            dRodr = dataset['dRodr'][rho_idx]
+            dZodr = dataset['dZodr'][rho_idx]
+        else:
+            ne = dataset['ne'][rho_idx]*1e-19
+            RLne = dataset['RLne'][rho_idx]
+            ni = dataset['ni'][rho_idx]*1e-19
+            RLni = dataset['RLni'][rho_idx]
+            A_i = 2
+            Z_i = 1
+
+            Te = dataset['Te'][rho_idx]*1e-3
+            RLTe = dataset['RLTe'][rho_idx]
+            Ti = dataset['Ti'][rho_idx]*1e-3
+            RLTi = dataset['RLTi'][rho_idx]
+
+            n_LZ = dataset['n_LZ'][rho_idx]*1e-19
+            RLn_LZ = dataset['RLn_LZ'][rho_idx]
+            A_LZ = 9
+            Z_L = dataset['Z_L']
+
+            if imp_composite:
+                n_comp = dataset['n_comp'][rho_idx]*1e-19
+                RLn_comp = dataset['RLn_comp'][rho_idx]
+                A_comp = dataset['A_comp'][rho_idx]
+                Z_comp = dataset['Z_comp'][rho_idx]
+            B0 = dataset['B0']
 
         q = dataset['q'][rho_idx]
         s = dataset['s'][rho_idx]
         alpha = dataset['alpha'][rho_idx]
         beta = dataset['beta'][rho_idx]
         trpeps = dataset['trpeps'][rho_idx]
+        a = dataset['a']
         Ro = dataset['Ro'][rho_idx]
         R0 = dataset['R0']
-        B0 = dataset['B0']
+        
 
         ## Species namelist
         species_nl = {
@@ -1430,19 +1495,43 @@ class GENE:
         }
 
         ## Geometry namelist
-        geo_nl = {
+        if miller:
+            geo_nl = {
             "nl_name" : "geometry",
-            "magn_geometry" : "'s_alpha'",
+            "magn_geometry" : "'miller'",
             "trpeps" : str(trpeps)+" ! rho = "+str(rho),
             "q0" : q,
             "shat" : s,
-            "major_R" : Ro/R0,
             "amhd" : alpha,
+            'drR' : dRodr,
+            'drZ' : dZodr,
+            'kappa' : kappa,
+            's_kappa' : s_kappa,
+            'delta' : delta,
+            's_delta' : s_delta,
+            'zeta' : zeta,
+            's_zeta' : s_zeta,
+            'minor_r' : 1.0,
+            "major_R" : Ro/a,
             "norm_flux_projection" : '.F.',
             "rhostar" : -1,
             "dpdx_term" : "'full_drift'",
             "dpdx_pm" : -1,
-        }
+            }
+        else:
+            geo_nl = {
+                "nl_name" : "geometry",
+                "magn_geometry" : "'s_alpha'",
+                "trpeps" : str(trpeps)+" ! rho = "+str(rho),
+                "q0" : q,
+                "shat" : s,
+                "major_R" : Ro/R0,
+                "amhd" : alpha,
+                "norm_flux_projection" : '.F.',
+                "rhostar" : -1,
+                "dpdx_term" : "'full_drift'",
+                "dpdx_pm" : -1,
+            }
 
         ## Info namelist
         info_nl = {
@@ -1455,7 +1544,7 @@ class GENE:
             "Tref" : Te,
             "nref" : ne,
             "Bref" : B0,
-            "Lref" : R0,
+            "Lref" : a,
             "mref" : A_i,
             "omegatorref" : 0,
         }
