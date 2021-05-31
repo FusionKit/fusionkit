@@ -665,27 +665,11 @@ class Equilibrium:
 
             # add the midplane average geometric flux surface quantities to derived
             derived['Ro'] = np.array(fluxsurfaces['R0'])
-            # fix nan's in Ro
-            for i in np.argwhere(np.isnan(derived['Ro']))[::-1]:
-                if i[0] < len(derived['Ro'])-1:
-                    i_normal = i[0]+np.min(np.argwhere(~np.isnan(derived['Ro'][i[0]:])))
-                    derived['Ro'][i[0]] = derived['Ro'][i_normal]+(derived['Ro'][i_normal]-derived['Ro'][i_normal+1])
-                else:
-                    derived['Ro'][i[0]] = derived['Ro'][i[0]-1]
             derived['Ro'][0] = derived['Ro'][1] # clear the starting zero
-            derived['Ro'] = savgol_filter(derived['Ro'],21,2)
             derived['R0'] = derived['Ro'][-1] # midplane average major radius of the lcfs
             derived['Zo'] = np.array(fluxsurfaces['Z0'])
             derived['Z0'] = derived['Zo'][-1] # average elevation of the lcfs
             derived['r'] = np.array(fluxsurfaces['r'])
-            # fix nan's in r
-            for i in np.argwhere(np.isnan(derived['r']))[::-1]:
-                if i[0] < len(derived['r'])-1:
-                    i_normal = i[0]+np.min(np.argwhere(~np.isnan(derived['r'][i[0]:])))
-                    derived['r'][i[0]] = derived['r'][i_normal]+(derived['r'][i_normal]-derived['r'][i_normal+1])
-                else:
-                    derived['r'][i[0]] = derived['r'][i[0]-1]
-            derived['r'] = savgol_filter(derived['r'],21,2)
             derived['a'] = derived['r'][-1] # midplane average minor radius of the lcfs
             derived['epsilon'] = derived['r']/derived['Ro']
 
@@ -712,9 +696,9 @@ class Equilibrium:
                 derived['delta'] = savgol_filter(np.array(fluxsurfaces['delta']),11,2)
                 derived['zeta'] = savgol_filter(np.array(fluxsurfaces['zeta']),11,2)
 
-                # compute the shear of the Miller shaping parameters, adding additional smoothing to s_delta, !TODO: make these calculations more robust for rho<0.5
+                # compute the shear of the Miller shaping parameters
                 derived['s_kappa'] = derived['r']*np.gradient(np.log(derived['kappa']),derived['r'],edge_order=2)
-                derived['s_delta'] = savgol_filter((derived['r']/np.sqrt(1-derived['delta']**2))*np.gradient(derived['delta'],derived['r'],edge_order=2),21,2)
+                derived['s_delta'] = (derived['r']/np.sqrt(1-derived['delta']**2))*np.gradient(derived['delta'],derived['r'],edge_order=2)
                 derived['s_delta_ga'] = derived['r']*np.gradient(derived['delta'],derived['r'],edge_order=2)
                 derived['s_zeta'] = derived['r']*np.gradient(derived['zeta'],derived['r'],edge_order=2)
             
@@ -812,25 +796,38 @@ class Equilibrium:
             Z_fs[i,0] = interpolate.interp1d(psiZ[i_psiZ_min:i_psiZ_min+i_psiZ_upper_max],Z[i_psiZ_min:i_psiZ_min+i_psiZ_upper_max],bounds_error=False)(psi_fs)
             Z_fs[i,1] = interpolate.interp1d(psiZ[i_psiZ_lower_max:i_psiZ_min],Z[i_psiZ_lower_max:i_psiZ_min],bounds_error=False)(psi_fs)
         
-        # repair nan values in Z_fs !TODO make more robust like derived['Ro'] nan fix
-        for j in [0,1]:
-            # find the indexes of the nan values in the Z vector of the flux surface trace
-            i_Z_fs_nan = np.argwhere(np.isnan(Z_fs[:,j]))
-            
-            # cycle through the nan values and compute a weighted sum of the last and earliest non-nan values
-            for i in i_Z_fs_nan:
-                Z_fs[i,j] = 0.5*((Z_fs[i-1,j]/(1+i-i_Z_fs_nan[0]))+(Z_fs[i_Z_fs_nan[-1]+1,j]/(1+i_Z_fs_nan[-1]-i)))
-        
-        # temporarily merge the upper and lower halves of the flux surface coordinates such that the trace starts at the lfs mid-plane
-        R_fs_tmp = np.hstack((R_fs[::-1],R_fs))
-        Z_fs_tmp = np.hstack((Z_fs[:,0][::-1],Z_fs[:,1]))
+        # find the top and bottom of the Z gap at the inner and outer sides as a consequence of assuming min(R_fs) and max(R_fs) to be on Zmag
+        i_Z_upper = find(np.max([Z_fs[np.where(~np.isnan(Z_fs[:,0]))[0][0],0],Z_fs[np.where(~np.isnan(Z_fs[:,0]))[0][-1],0]]),Z)
+        i_Z_lower = find(np.min([Z_fs[np.where(~np.isnan(Z_fs[:,1]))[0][0],1],Z_fs[np.where(~np.isnan(Z_fs[:,1]))[0][-1],1]]),Z)
+
+        # setup arrays to store R,Z coordinates of the missing slices of the flux surface
+        Z_fs_ = Z[i_Z_lower:i_Z_upper]
+        R_fs_ = np.zeros((len(Z_fs_),2))
+
+        # find the inner and outer R of the flux surface by slicing psiRZ by Z between Z[i_Z_lower] and Z[i_Z_upper] to ensure min(R_fs) and max(R_fs) are included
+        for i_Z in range(i_Z_lower,i_Z_upper):
+            i = i_Z - i_Z_lower
+            # take a slice of psiRZ
+            psiR = np.array(psiRZ[i_Z,:])
+
+            # find the minimum of psi in the slice to split the R,Z plane
+            i_psiR_min = find(np.min(psiR),psiR)
+
+            # find the inner and outer R corresponding to the flux surface
+            R_fs_[i,0] = interpolate.interp1d(psiR[:i_psiR_min],R[:i_psiR_min],bounds_error=False)(psi_fs)
+            R_fs_[i,1] = interpolate.interp1d(psiR[i_psiR_min:],R[i_psiR_min:],bounds_error=False)(psi_fs)
+
+        # find the glue edges
+        i_upper = sorted(find(Z[i_Z_upper],Z_fs[:,0],n=4))
+        i_lower = sorted(find(Z[i_Z_lower],Z_fs[:,1],n=4))
+        i_Zmag_fs_ = find(Zmag,Z_fs_)
+
+        # merge the upper and lower halves of the flux surface coordinates with the side slices such that the trace starts and ends at the lfs mid-plane
+        fs['R'] = np.hstack((R_fs_[i_Zmag_fs_:,1],R_fs[i_upper[0]:i_upper[-1]][::-1],R_fs_[:,0][::-1],R_fs[i_lower[0]+1:i_lower[-1]],R_fs_[:i_Zmag_fs_+1,1]))
+        fs['Z'] = np.hstack((Z_fs_[i_Zmag_fs_:],Z_fs[i_upper[0]:i_upper[-1],0][::-1],Z_fs_[::-1],Z_fs[i_lower[0]+1:i_lower[-1],1],Z_fs_[:i_Zmag_fs_+1]))
         
         # find the flux surface center quantities and add them to the flux surface dict
-        fs.update(self.fluxsurface_center(psi_fs=psi_fs,R_fs=R_fs_tmp,Z_fs=Z_fs_tmp,psiRZ=psiRZ,R=R,Z=Z,incl_extrema=True))
-
-        # close the flux surface trace
-        fs['R'] = np.hstack((fs['R_out'],R_fs[::-1],fs['R_in'],R_fs,fs['R_out']))
-        fs['Z'] = np.hstack((fs['Z0'],Z_fs[:,0][::-1],fs['Z0'],Z_fs[:,1],fs['Z0']))
+        fs.update(self.fluxsurface_center(psi_fs=psi_fs,R_fs=fs['R'],Z_fs=fs['Z'],psiRZ=psiRZ,R=R,Z=Z,incl_extrema=True))
 
         if incl_miller_geo:
             fs = self.fluxsurface_miller_geo(fs=fs)
@@ -1525,7 +1522,7 @@ class GENE:
                 "trpeps" : str(trpeps)+" ! rho = "+str(rho),
                 "q0" : q,
                 "shat" : s,
-                "major_R" : Ro/R0,
+                "major_R" : 1.0,
                 "amhd" : alpha,
                 "norm_flux_projection" : '.F.',
                 "rhostar" : -1,
