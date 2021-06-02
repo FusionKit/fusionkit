@@ -178,7 +178,7 @@ class Equilibrium:
                         for fs in range(0,len(self.fluxsurfaces[key])):
                             self.fluxsurfaces[key][fs] = np.array(self.fluxsurfaces[key][fs])
                     else:
-                        self.fluxsurfaces[key] = np.array(self.fluxsurfaces[key])
+                        self.fluxsurfaces[key] = np.array(self.fluxsurfaces[key],dtype=object)
 
         if 'metadata' in equilibrium_json:
             self.metadata = equilibrium_json['metadata']
@@ -401,7 +401,12 @@ class Equilibrium:
             
             # add a zero at the start of all fluxsurface quantities and append the lcfs values to the end of the flux surface data
             for key in fluxsurfaces:
-                fluxsurfaces[key].insert(0,0.*fluxsurfaces[key][-1])
+                if key in ['R']:
+                    fluxsurfaces[key].insert(0,raw['Rmag'])
+                elif key in ['Z']:
+                    fluxsurfaces[key].insert(0,raw['Zmag'])
+                else:
+                    fluxsurfaces[key].insert(0,0.*fluxsurfaces[key][-1])
 
             for key in lcfs:
                 if key in fluxsurfaces:
