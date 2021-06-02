@@ -9,8 +9,6 @@ import re, copy, pathlib, json, codecs
 import numpy as np
 import pandas as pd
 from scipy import interpolate,integrate
-from scipy.signal import savgol_filter
-import matplotlib.pyplot as plt
 
 # Utilities
 # general numerical or pythonics utilities
@@ -296,6 +294,9 @@ class Equilibrium:
 
         :return: self or dict if just_raw
         '''
+
+        print('Reading eqdsk file to Equilibrium...')
+
         # check if eqdsk file path is provided and if it exists
         if f_path is None or not os.path.isfile(f_path):
             print('Invalid file or path provided!')
@@ -324,10 +325,9 @@ class Equilibrium:
         self.max_values = 5 # maximum number of values per line
         
         # read the g-file
-        file = open(f_path, 'r')
-        lines = file.readlines()
-        file.close()
-
+        with open(f_path,'r') as file:
+            lines = file.readlines()
+        
         # convert the line strings in the values list to lists of numerical values, while retaining potential character strings at the start of the file
         for i,line in enumerate(lines):
             # split the line string into separate values by ' ' as delimiter, adding a space before a minus sign if it is the delimiter
@@ -691,10 +691,10 @@ class Equilibrium:
                 derived['R_sym'] = fluxsurfaces['R_sym']
                 derived['Z_sym'] = fluxsurfaces['Z_sym']
 
-                # add the Miller shaping parameters to derived and smooth them using a Savitzky-Golay filter with a window length of 11 and second order polynomial 
-                derived['kappa'] = savgol_filter(np.array(fluxsurfaces['kappa']),11,2)
-                derived['delta'] = savgol_filter(np.array(fluxsurfaces['delta']),11,2)
-                derived['zeta'] = savgol_filter(np.array(fluxsurfaces['zeta']),11,2)
+                # add the Miller shaping parameters to derived
+                derived['kappa'] = np.array(fluxsurfaces['kappa'])
+                derived['delta'] = np.array(fluxsurfaces['delta'])
+                derived['zeta'] = np.array(fluxsurfaces['zeta'])
 
                 # compute the shear of the Miller shaping parameters
                 derived['s_kappa'] = derived['r']*np.gradient(np.log(derived['kappa']),derived['r'],edge_order=2)
@@ -823,8 +823,8 @@ class Equilibrium:
         i_Zmag_fs_ = find(Zmag,Z_fs_)
 
         # merge the upper and lower halves of the flux surface coordinates with the side slices such that the trace starts and ends at the lfs mid-plane
-        fs['R'] = np.hstack((R_fs_[i_Zmag_fs_:,1],R_fs[i_upper[0]:i_upper[-1]][::-1],R_fs_[:,0][::-1],R_fs[i_lower[0]+1:i_lower[-1]],R_fs_[:i_Zmag_fs_+1,1]))
-        fs['Z'] = np.hstack((Z_fs_[i_Zmag_fs_:],Z_fs[i_upper[0]:i_upper[-1],0][::-1],Z_fs_[::-1],Z_fs[i_lower[0]+1:i_lower[-1],1],Z_fs_[:i_Zmag_fs_+1]))
+        fs['R'] = np.hstack((R_fs_[i_Zmag_fs_:,1],R_fs[i_upper[0]:i_upper[-1]][::-1],R_fs_[:-2,0][::-1],R_fs[i_lower[0]+1:i_lower[-1]],R_fs_[:i_Zmag_fs_+1,1]))
+        fs['Z'] = np.hstack((Z_fs_[i_Zmag_fs_:],Z_fs[i_upper[0]:i_upper[-1],0][::-1],Z_fs_[:-2][::-1],Z_fs[i_lower[0]+1:i_lower[-1],1],Z_fs_[:i_Zmag_fs_+1]))
         
         # find the flux surface center quantities and add them to the flux surface dict
         fs.update(self.fluxsurface_center(psi_fs=psi_fs,R_fs=fs['R'],Z_fs=fs['Z'],psiRZ=psiRZ,R=R,Z=Z,incl_extrema=True))
@@ -1541,10 +1541,19 @@ class GENE:
             "Tref" : Te,
             "nref" : ne,
             "Bref" : B0,
-            "Lref" : a,
-            "mref" : A_i,
-            "omegatorref" : 0,
         }
+        if miller:
+            units_nl.update(
+                {"Lref" : a,}
+            )
+        else:
+            units_nl.update(
+                {"Lref" : R0,}
+            )
+        units_nl.update(
+            {"mref" : A_i,
+            "omegatorref" : 0}
+        )
 
         ## Complete GENE namelist
         gene_nl = {
