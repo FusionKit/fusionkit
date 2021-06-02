@@ -426,7 +426,8 @@ class Equilibrium:
             derived['Bref_eqdsk'] = raw['fpol'][0]/raw['Rmag']
             derived['Bref_miller'] = raw['fpol']/derived['Ro']
             #derived['B_unit'] = interpolate.interp1d(derived['r'],(1/derived['r'])*np.gradient(derived['phi'],derived['r'],edge_order=2))(derived['r'])
-            derived['B_unit'] = interpolate.interp1d(derived['r'],(raw['qpsi']/derived['r'])*np.gradient(derived['psi'],derived['r']))(derived['r'])
+            with np.errstate(divide='ignore'):
+                derived['B_unit'] = interpolate.interp1d(derived['r'],(raw['qpsi']/derived['r'])*np.gradient(derived['psi'],derived['r']))(derived['r'])
             
             if incl_miller_geo:
                 # add the symmetrised flux surface trace arrays to derived
@@ -439,8 +440,9 @@ class Equilibrium:
                 derived['zeta'] = np.array(fluxsurfaces['zeta'])
 
                 # compute the shear of the Miller shaping parameters
-                derived['s_kappa'] = derived['r']*np.gradient(np.log(derived['kappa']),derived['r'],edge_order=2)
-                derived['s_delta'] = (derived['r']/np.sqrt(1-derived['delta']**2))*np.gradient(derived['delta'],derived['r'],edge_order=2)
+                with np.errstate(divide='ignore'):
+                    derived['s_kappa'] = derived['r']*np.gradient(np.log(derived['kappa']),derived['r'],edge_order=2)
+                    derived['s_delta'] = (derived['r']/np.sqrt(1-derived['delta']**2))*np.gradient(derived['delta'],derived['r'],edge_order=2)
                 derived['s_delta_ga'] = derived['r']*np.gradient(derived['delta'],derived['r'],edge_order=2)
                 derived['s_zeta'] = derived['r']*np.gradient(derived['zeta'],derived['r'],edge_order=2)
             
