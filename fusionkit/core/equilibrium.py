@@ -184,13 +184,13 @@ class Equilibrium:
 
         return self
 
-    def write_json(self,f_path='./',f_name='Equilibrium',metadata=None):
+    def write_json(self,f_path='./',f_name='Equilibrium.json',metadata=None):
         '''
         Function to write the Equilibrium object to a json file on disk
 
         :param f_path: string path to the location the desired file, [default] the current folder '.'  (optional) 
 
-        :param f_name: string of the desired file name excluding the .json extension (!), [default] 'Equilibrium' (optional)
+        :param f_name: string of the desired file name including the .json extension (!), [default] 'Equilibrium.json' (optional)
 
         :param metadata: dict contain relevant metadata for the Equilibrium file 
 
@@ -235,7 +235,7 @@ class Equilibrium:
                         if isinstance(equilbrium['fluxsurfaces'][key][fs],np.ndarray):
                             equilbrium['fluxsurfaces'][key][fs] = equilbrium['fluxsurfaces'][key][fs].tolist()
 
-        json.dump(equilbrium, codecs.open(f_path+f_name+'.json', 'w', encoding='utf-8'), separators=(',', ':'), indent=4)
+        json.dump(equilbrium, codecs.open(f_path+f_name, 'w', encoding='utf-8'), separators=(',', ':'), indent=4)
 
         print('Generated fusionkit.Equilibrium file at: '+f_path+'.json')
 
