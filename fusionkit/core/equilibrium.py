@@ -151,6 +151,7 @@ class Equilibrium:
 
         :return: Equilibrium object containing the data from the json
         '''
+        print("Reading Equilibrium {}".format(f_path))
         with open(f_path,'r') as file:
             equilibrium_json = json.load(file)
         
