@@ -14,7 +14,7 @@ class GENE:
         self.output = {}
     
     # I/O functions
-    def write_input(self,rho=None,dataset=None,gene_config=None,diagdir=None,fname=None,imp_composite=False,miller=False):
+    def write_input(self,rho=None,dataset=None,gene_config=None,diagdir=None,f_path=None,f_name=None,imp_composite=False,miller=False):
         m_e = 9.109390E-31
         m_p = 1.672623E-27
 
@@ -276,8 +276,8 @@ class GENE:
         ## Complete GENE namelist
         gene_nl = {
             'meta' : {
-                "path" : "./",
-                "file" : fname,
+                "path" : f_path,
+                "file" : f_name,
             },
             'parallel' : parallel_nl,
             'box' : box_nl,
