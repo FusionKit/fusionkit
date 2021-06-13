@@ -136,6 +136,12 @@ class Equilibrium:
             #print(sanity_pair)
             if self.raw[key]!=self.raw[sanity_pair]:
                 exit('Inconsistent '+key+': %7.4g, %7.4g'%(self.raw[key], self.raw[sanity_pair])+'. CHECK YOUR EQDSK FILE!')
+        
+        # ensure the boundary coordinates are stored from midplane lfs to midplane hfs
+        i_split = find(np.max(self.raw['Rbbbs']),self.raw['Rbbbs'])
+        self.raw['Rbbbs'] = np.hstack((self.raw['Rbbbs'][i_split:],self.raw['Rbbbs'][:i_split]))
+        self.raw['Zbbbs'] = np.hstack((self.raw['Zbbbs'][i_split:],self.raw['Zbbbs'][:i_split]))
+
         if add_derived:
             self.add_derived()
         if just_raw:
@@ -238,7 +244,7 @@ class Equilibrium:
 
         json.dump(equilbrium, codecs.open(f_path+f_name, 'w', encoding='utf-8'), separators=(',', ':'), indent=4)
 
-        print('Generated fusionkit.Equilibrium file at: '+f_path+'.json')
+        print('Generated fusionkit.Equilibrium file at: {}'.format(f_path+f_name))
 
         return
 
@@ -278,7 +284,8 @@ class Equilibrium:
         derived['Z'] = np.array([raw['Zmid'] - 0.5*raw['Zdim'] + i*(raw['Zdim']/(raw['nh']-1)) for i in range(raw['nh'])])
 
         # find the indexes of 'zmag' on the high field side (hfs) and low field side (lfs) of the separatrix
-        i_Zmag_hfs, i_Zmag_lfs = sorted(find(raw['Zmag'],raw['Zbbbs'],n=2))
+        i_Zmag_hfs = find(raw['Zmag'],raw['Zbbbs'][:int(len(raw['Zbbbs'])/2)])
+        i_Zmag_lfs = int(len(raw['Zbbbs'])/2)+find(raw['Zmag'],raw['Zbbbs'][int(len(raw['Zbbbs'])/2):])
         
         # find the index of 'zmag' in the R,Z grid
         i_Zmag = find(raw['Zmag'],derived['Z'])
@@ -395,7 +402,6 @@ class Equilibrium:
 
             # find the geometric center, minor radius and extrema of the lcfs manually
             lcfs = self.fluxsurface_center(psi_fs=raw['psisep'],R_fs=raw['Rbbbs'],Z_fs=raw['Zbbbs'],psiRZ=raw['psiRZ'],R=derived['R'],Z=derived['Z'],incl_extrema=True)
-            lcfs.update({'R':raw['Rbbbs'],'Z':raw['Zbbbs']})
             if incl_miller_geo:
                 lcfs = self.fluxsurface_miller_geo(fs=lcfs)
             
@@ -405,6 +411,8 @@ class Equilibrium:
                     fluxsurfaces[key].insert(0,raw['Rmag'])
                 elif key in ['Z']:
                     fluxsurfaces[key].insert(0,raw['Zmag'])
+                elif key in ['kappa','delta','zeta']:
+                    fluxsurfaces[key].insert(0,fluxsurfaces[key][0])
                 else:
                     fluxsurfaces[key].insert(0,0.*fluxsurfaces[key][-1])
 
@@ -754,9 +762,9 @@ class Equilibrium:
     
         # find the R,Z coordinates of the top and bottom of the flux surface
         Z_bottom = np.min(Z_fs)
-        R_bottom = R_fs[find(Z_bottom,Z_fs)]
+        R_bottom = interpolate.interp1d(Z_fs,R_fs)(Z_bottom)
         Z_top = np.max(Z_fs)
-        R_top = R_fs[find(Z_top,Z_fs)]
+        R_top = interpolate.interp1d(Z_fs,R_fs)(Z_top)
 
         # compute triangularity (delta) and elongation (kappa) of flux surface
         delta_top = (fs['R0'] - R_top)/fs['r']
@@ -766,7 +774,7 @@ class Equilibrium:
         fs['kappa'] = (Z_top - Z_bottom)/(2*fs['r'])
 
         # generate theta grid and interpolate the flux surface trace to the Miller parameterisation
-        fs['theta'] = np.linspace(0,2*np.pi,3600)
+        fs['theta'] = np.linspace(0,2*np.pi,360)
         R_miller = fs['R0'] + fs['r']*np.cos(fs['theta']+x*np.sin(fs['theta']))
         Z_miller = np.hstack((interpolate.interp1d(R_fs[:int(len(R_fs)/2)],Z_fs[:int(len(R_fs)/2)],bounds_error=False)(R_miller[:int(len(fs['theta'])/2)]),interpolate.interp1d(R_fs[int(len(R_fs)/2):],Z_fs[int(len(R_fs)/2):],bounds_error=False)(R_miller[int(len(fs['theta'])/2):])))
 
@@ -790,6 +798,11 @@ class Equilibrium:
 
         # compute the average zeta of the flux surface
         fs['zeta'] = 0.5*(zeta_lfs+zeta_hfs)
+
+        fs['Z_sym_bottom'] = Z_bottom
+        fs['R_sym_bottom'] = R_bottom
+        fs['Z_sym_top'] = Z_top
+        fs['R_sym_top'] = R_top
 
         fs['R_miller'] = R_miller
         fs['Z_miller'] = fs['Z0']+fs['kappa']*fs['r']*np.sin(fs['theta']+fs['zeta']*np.sin(2*fs['theta']))
