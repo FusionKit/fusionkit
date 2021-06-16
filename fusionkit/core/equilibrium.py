@@ -291,7 +291,9 @@ class Equilibrium:
         i_Zmag = find(raw['Zmag'],derived['Z'])
 
         # find indexes of separatrix on HFS, magnetic axis, separatrix on LFS in R
-        i_R_hfs, i_Rmag, i_R_lfs = sorted([find(raw['Rbbbs'][i_Zmag_hfs],derived['R']),find(raw['Rmag'],derived['R']),find(raw['Rbbbs'][i_Zmag_lfs],derived['R'])])
+        i_R_hfs = find(raw['Rbbbs'][i_Zmag_hfs],derived['R'][:int(len(derived['R'])/2)])
+        i_Rmag = find(raw['Rmag'],derived['R'])
+        i_R_lfs = int(len(derived['R'])/2)+find(raw['Rbbbs'][i_Zmag_lfs],derived['R'][int(len(derived['R'])/2):])
 
         # HFS and LFS R and psirz
         R_hfs = derived['R'][i_R_hfs:i_Rmag]
@@ -402,6 +404,7 @@ class Equilibrium:
 
             # find the geometric center, minor radius and extrema of the lcfs manually
             lcfs = self.fluxsurface_center(psi_fs=raw['psisep'],R_fs=raw['Rbbbs'],Z_fs=raw['Zbbbs'],psiRZ=raw['psiRZ'],R=derived['R'],Z=derived['Z'],incl_extrema=True)
+            lcfs.update({'R':raw['Rbbbs'],'Z':raw['Zbbbs']})
             if incl_miller_geo:
                 lcfs = self.fluxsurface_miller_geo(fs=lcfs)
             
@@ -446,6 +449,11 @@ class Equilibrium:
             with np.errstate(divide='ignore'):
                 derived['B_unit'] = interpolate.interp1d(derived['r'],(raw['qpsi']/derived['r'])*np.gradient(derived['psi'],derived['r']))(derived['r'])
             
+            # add beta and alpha, assuming the pressure profile included in the equilibrium and Bref=derived['Bref_eqdsk]
+            derived['p'] = raw['pressure']
+            derived['beta'] = 8*np.pi*1E-7*derived['p']/(derived['Bref_eqdsk']**2)
+            derived['alpha'] = -1*raw['qpsi']**2*derived['Ro']*np.gradient(derived['beta'],derived['r'])
+
             if incl_miller_geo:
                 # add the symmetrised flux surface trace arrays to derived
                 derived['R_sym'] = fluxsurfaces['R_sym']
