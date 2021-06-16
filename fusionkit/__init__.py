@@ -11,6 +11,7 @@ if sys.version_info < (3,7):
 from .core.dataspine import DataSpine
 from .core.equilibrium import Equilibrium
 from .core.plasma import Plasma
+from .core.remote import Remote
 from .core.utils import find
 
 # import framework extensions
@@ -28,6 +29,7 @@ __all__ = [
     "GENE",
     "JET_PPF",
     "Plasma",
+    "Remote",
     "QLK",
     "TGLF",
 ]
