@@ -816,3 +816,83 @@ class Equilibrium:
         fs['Z_miller'] = fs['Z0']+fs['kappa']*fs['r']*np.sin(fs['theta']+fs['zeta']*np.sin(2*fs['theta']))
         
         return fs
+
+    def update_pressure(self,p=None,additive=False,self_consistent=True):
+        if additive:
+            self.derived['p'] += p
+        else:
+            self.derived['p'] = p
+        if self_consistent:
+            self.update_beta()
+            self.update_alpha()
+        return self
+
+    def update_beta(self,beta=None,Bref=None,self_consistent=True):
+        if beta:
+            self.derived['beta'] = beta
+        else:
+            if not Bref:
+                Bref = self.derived['Bref_eqdsk']
+            self.derived['beta'] = 8*np.pi*1E-7*self.derived['p']/(Bref**2)
+        if self_consistent:
+            self.update_alpha()
+        return self
+
+    def update_alpha(self,alpha=None):
+        if alpha:
+            self.derived['alpha'] = alpha
+        else:
+            self.derived['alpha'] = -1*self.raw['qpsi']**2*self.derived['Ro']*np.gradient(self.derived['beta'],self.derived['r'])
+        return self
+    
+    def map_on_equilibrium(self,x=None,y=None,x_label=None,interp_order=9):
+        y_interpolated = interpolate.interp1d(x,y,kind=interp_order,bounds_error=False)(self.derived[x_label])
+        return self.derived[x_label],y_interpolated
+    
+    def refine(self,nw=None,nbbbs=None,limitr=None,interp_order=9,retain_original=False,self_consistent=True):
+        print('Refining Equilibrium...')
+        if retain_original:
+            self.original = copy.deepcopy(self.raw)
+
+        if nw and nw > self.raw['nw']:
+            old_x = np.linspace(0,1,self.raw['nw'])
+            old_y = np.linspace(0,1,self.raw['nh'])
+            new_x = np.linspace(0,1,nw)
+            refinable = True
+        else:
+            refinable = False
+            print('Provided nw does not refine the equilibrium, provided:{} < exisiting:{}'.format(nw,self.raw['nw']))
+        
+        '''
+        elif nbbbs and nbbbs > self.raw['nbbbs']:
+            old_x = np.linspace(0,1,self.raw['nbbbs'])
+            new_x = np.linspace(0,1,nbbbs)
+            refinable = True
+        elif limitr and limitr > self.raw['limitr']:
+            old_x = np.linspace(0,1,self.raw['limitr'])
+            new_x = np.linspace(0,1,limitr)
+            refinable = True
+        '''
+
+        if refinable:
+            for quantity in self.raw.keys():
+                if isinstance(self.raw[quantity],np.ndarray):
+                    if self.raw[quantity].size == old_x.size:
+                        #print('quantity: {}'.format(quantity))
+                        self.raw[quantity] = interpolate.interp1d(old_x,self.raw[quantity],kind=interp_order)(new_x)
+                    elif self.raw[quantity].size == old_x.size**2:
+                        #print('quantity: {}'.format(quantity))
+                        self.raw[quantity] = interpolate.interp2d(old_x,old_y,self.raw[quantity],kind='quintic')(new_x,new_x)
+            self.raw['nw'] = nw
+            self.raw['nh'] = nw
+        
+        if self_consistent:
+            if self.derived and self.fluxsurfaces:
+                self.derived = {}
+                self.fluxsurfaces = {}
+                self.add_derived(incl_fluxsurfaces=True)
+            elif self.derived:
+                self.derived = {}
+                self.add_derived()
+
+        return self
