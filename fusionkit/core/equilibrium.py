@@ -75,7 +75,7 @@ class Equilibrium:
         # convert the line strings in the values list to lists of numerical values, while retaining potential character strings at the start of the file
         for i,line in enumerate(lines):
             # split the line string into separate values by ' ' as delimiter, adding a space before a minus sign if it is the delimiter
-            values = list(filter(None,re.sub(r'(?<!E)-',' -',line).rstrip('\n').split(' ')))
+            values = list(filter(None,re.sub(r'(?<![Ee])-',' -',line).rstrip('\n').split(' ')))
             #print('values: '+str(values))
             # select all the numerical values in the list of sub-strings of the current line, but keep them as strings so the fortran formatting remains
             numbers = [j for i in [number for number in (re.findall(r'^(?![A-Z]).*-?\ *[0-9]+\.?[0-9]*(?:[Ee]\ *[-+]?\ *[0-9]+)?', value) for value in values)] for j in i]
@@ -86,6 +86,11 @@ class Equilibrium:
             if len(strings) > 0:
                 strings = [strings[0],' '.join([string for string in strings[1:]])]
             #print('strings: '+str(strings))
+            # handle the exception of the first line where in the case description numbers and strings can be mixed
+            if i == 0:
+                numbers = numbers[-3:]
+                case = [string for string in list(line.rstrip('\n').split())[1:] if string not in numbers] 
+                strings = [strings[0],' '.join(case)]
             # convert the list of numerical sub-strings to their actual int or float value
             numbers = [number(value) for value in numbers]
             #print('numbers: '+str(numbers))
@@ -96,38 +101,39 @@ class Equilibrium:
         current_row = 0
         # go through the eqdsk format line by line and collect all the values for the vars in each format line
         for key in self.eqdsk_format:
-            # check if the var size is a string refering to a value to be read from the eqdsk file and backfill it, for loop for multidimensional vars
-            for i,size in enumerate(self.eqdsk_format[key]['size']):
-                if isinstance(size,str):
-                    self.eqdsk_format[key]['size'][i] = self.raw[size]
+            if current_row < len(lines):
+                # check if the var size is a string refering to a value to be read from the eqdsk file and backfill it, for loop for multidimensional vars
+                for i,size in enumerate(self.eqdsk_format[key]['size']):
+                    if isinstance(size,str):
+                        self.eqdsk_format[key]['size'][i] = self.raw[size]
 
-            # compute the row the current eqdsk format line ends
-            if len(self.eqdsk_format[key]['vars']) != np.prod(self.eqdsk_format[key]['size']):
-                end_row = current_row + int(np.ceil(len(self.eqdsk_format[key]['vars'])*np.prod(self.eqdsk_format[key]['size'])/self.max_values))
-            else:
-                end_row = current_row + int(np.ceil(np.prod(self.eqdsk_format[key]['size'])/self.max_values))
+                # compute the row the current eqdsk format line ends
+                if len(self.eqdsk_format[key]['vars']) != np.prod(self.eqdsk_format[key]['size']):
+                    end_row = current_row + int(np.ceil(len(self.eqdsk_format[key]['vars'])*np.prod(self.eqdsk_format[key]['size'])/self.max_values))
+                else:
+                    end_row = current_row + int(np.ceil(np.prod(self.eqdsk_format[key]['size'])/self.max_values))
 
-            # check if there are values to be collected
-            if end_row > current_row:
-                # collect all the values between current_row and end_row in the eqdsk file and flatten the resulting list of lists to a list
-                values = [j for i in lines[current_row:end_row] for j in i]
-                # handle the exception of len(eqdsk_format[key]['vars']) > 1 and the data being stored in value pairs 
-                if len(self.eqdsk_format[key]['vars']) > 1 and len(self.eqdsk_format[key]['vars']) != self.eqdsk_format[key]['size'][0]:
-                    # make a shadow copy of values
-                    values_ = copy.deepcopy(values)
-                    # empty the values list
-                    values = []
-                    # collect all the values belonging to the n-th variable in the format list and remove them from the shadow value list until empty
-                    for j in range(len(self.eqdsk_format[key]['vars']),0,-1):
-                        values.append(np.array(values_[0::j]))
-                        values_ = [value for value in values_ if value not in values[-1]]
-                # store and reshape the values in a np.array() in case eqdsk_format[key]['size'] > max_values
-                elif self.eqdsk_format[key]['size'][0] > self.max_values:
-                    values = [np.array(values).reshape(self.eqdsk_format[key]['size'])]
-                # store the var value pairs in the eqdsk dict
-                self.raw.update({var:values[k] for k,var in enumerate(self.eqdsk_format[key]['vars'])})
-            # update the current position in the 
-            current_row = end_row
+                # check if there are values to be collected
+                if end_row > current_row:
+                    # collect all the values between current_row and end_row in the eqdsk file and flatten the resulting list of lists to a list
+                    values = [j for i in lines[current_row:end_row] for j in i]
+                    # handle the exception of len(eqdsk_format[key]['vars']) > 1 and the data being stored in value pairs 
+                    if len(self.eqdsk_format[key]['vars']) > 1 and len(self.eqdsk_format[key]['vars']) != self.eqdsk_format[key]['size'][0]:
+                        # make a shadow copy of values
+                        values_ = copy.deepcopy(values)
+                        # empty the values list
+                        values = []
+                        # collect all the values belonging to the n-th variable in the format list and remove them from the shadow value list until empty
+                        for j in range(len(self.eqdsk_format[key]['vars']),0,-1):
+                            values.append(np.array(values_[0::j]))
+                            values_ = [value for value in values_ if value not in values[-1]]
+                    # store and reshape the values in a np.array() in case eqdsk_format[key]['size'] > max_values
+                    elif self.eqdsk_format[key]['size'][0] > self.max_values:
+                        values = [np.array(values).reshape(self.eqdsk_format[key]['size'])]
+                    # store the var value pairs in the eqdsk dict
+                    self.raw.update({var:values[k] for k,var in enumerate(self.eqdsk_format[key]['vars'])})
+                # update the current position in the 
+                current_row = end_row
 
         # sanity check the eqdsk values
         for key in self.sanity_values:
@@ -137,10 +143,11 @@ class Equilibrium:
             if self.raw[key]!=self.raw[sanity_pair]:
                 exit('Inconsistent '+key+': %7.4g, %7.4g'%(self.raw[key], self.raw[sanity_pair])+'. CHECK YOUR EQDSK FILE!')
         
-        # ensure the boundary coordinates are stored from midplane lfs to midplane hfs
-        i_split = find(np.max(self.raw['Rbbbs']),self.raw['Rbbbs'])
-        self.raw['Rbbbs'] = np.hstack((self.raw['Rbbbs'][i_split:],self.raw['Rbbbs'][:i_split]))
-        self.raw['Zbbbs'] = np.hstack((self.raw['Zbbbs'][i_split:],self.raw['Zbbbs'][:i_split]))
+        if 'Rbbbs' in self.raw and 'Zbbbs' in self.raw:
+            # ensure the boundary coordinates are stored from midplane lfs to midplane hfs
+            i_split = find(np.max(self.raw['Rbbbs']),self.raw['Rbbbs'])
+            self.raw['Rbbbs'] = np.hstack((self.raw['Rbbbs'][i_split:],self.raw['Rbbbs'][:i_split]))
+            self.raw['Zbbbs'] = np.hstack((self.raw['Zbbbs'][i_split:],self.raw['Zbbbs'][:i_split]))
 
         if add_derived:
             self.add_derived()
@@ -283,24 +290,6 @@ class Equilibrium:
         derived['R'] = np.array([raw['Rmin'] + i*(raw['Rdim']/(raw['nw']-1)) for i in range(raw['nw'])])
         derived['Z'] = np.array([raw['Zmid'] - 0.5*raw['Zdim'] + i*(raw['Zdim']/(raw['nh']-1)) for i in range(raw['nh'])])
 
-        # find the indexes of 'zmag' on the high field side (hfs) and low field side (lfs) of the separatrix
-        i_Zmag_hfs = find(raw['Zmag'],raw['Zbbbs'][:int(len(raw['Zbbbs'])/2)])
-        i_Zmag_lfs = int(len(raw['Zbbbs'])/2)+find(raw['Zmag'],raw['Zbbbs'][int(len(raw['Zbbbs'])/2):])
-        
-        # find the index of 'zmag' in the R,Z grid
-        i_Zmag = find(raw['Zmag'],derived['Z'])
-
-        # find indexes of separatrix on HFS, magnetic axis, separatrix on LFS in R
-        i_R_hfs = find(raw['Rbbbs'][i_Zmag_hfs],derived['R'][:int(len(derived['R'])/2)])
-        i_Rmag = find(raw['Rmag'],derived['R'])
-        i_R_lfs = int(len(derived['R'])/2)+find(raw['Rbbbs'][i_Zmag_lfs],derived['R'][int(len(derived['R'])/2):])
-
-        # HFS and LFS R and psirz
-        R_hfs = derived['R'][i_R_hfs:i_Rmag]
-        R_lfs = derived['R'][i_Rmag:i_R_lfs]
-        psiRZmag_hfs = raw['psiRZ'][i_Zmag,i_R_hfs:i_Rmag]
-        psiRZmag_lfs = raw['psiRZ'][i_Zmag,i_Rmag:i_R_lfs]
-
         # equidistant psi grid
         derived['psi'] = np.linspace(raw['psimag'],raw['psisep'],raw['nw'])
 
@@ -308,9 +297,33 @@ class Equilibrium:
         psi_norm = (derived['psi'] - raw['psimag'])/(raw['psisep'] - raw['psimag'])
         derived['rho_pol'] = np.sqrt(psi_norm)
 
-        # nonlinear R grid at 'Zmag' based on equidistant psi grid for 'fpol', 'pres', 'ffprime', 'pprime' and 'qpsi'
-        derived['R_psi_hfs'] = interpolate.interp1d(psiRZmag_hfs,R_hfs,fill_value='extrapolate')(derived['psi'][::-1])
-        derived['R_psi_lfs'] = interpolate.interp1d(psiRZmag_lfs,R_lfs,fill_value='extrapolate')(derived['psi'])
+        if 'Rbbbs' in raw and 'Zbbbs' in raw:
+            # find the indexes of 'zmag' on the high field side (hfs) and low field side (lfs) of the separatrix
+            i_Zmag_hfs = find(raw['Zmag'],raw['Zbbbs'][:int(len(raw['Zbbbs'])/2)])
+            i_Zmag_lfs = int(len(raw['Zbbbs'])/2)+find(raw['Zmag'],raw['Zbbbs'][int(len(raw['Zbbbs'])/2):])
+            
+            # find the index of 'zmag' in the R,Z grid
+            i_Zmag = find(raw['Zmag'],derived['Z'])
+
+            # find indexes of separatrix on HFS, magnetic axis, separatrix on LFS in R
+            i_R_hfs = find(raw['Rbbbs'][i_Zmag_hfs],derived['R'][:int(len(derived['R'])/2)])
+            i_Rmag = find(raw['Rmag'],derived['R'])
+            i_R_lfs = int(len(derived['R'])/2)+find(raw['Rbbbs'][i_Zmag_lfs],derived['R'][int(len(derived['R'])/2):])
+
+            # HFS and LFS R and psirz
+            R_hfs = derived['R'][i_R_hfs:i_Rmag]
+            R_lfs = derived['R'][i_Rmag:i_R_lfs]
+            psiRZmag_hfs = raw['psiRZ'][i_Zmag,i_R_hfs:i_Rmag]
+            psiRZmag_lfs = raw['psiRZ'][i_Zmag,i_Rmag:i_R_lfs]
+
+            # nonlinear R grid at 'Zmag' based on equidistant psi grid for 'fpol', 'pres', 'ffprime', 'pprime' and 'qpsi'
+            derived['R_psi_hfs'] = interpolate.interp1d(psiRZmag_hfs,R_hfs,fill_value='extrapolate')(derived['psi'][::-1])
+            derived['R_psi_lfs'] = interpolate.interp1d(psiRZmag_lfs,R_lfs,fill_value='extrapolate')(derived['psi'])
+        
+            # find the R,Z values of the x-point, !TODO: should add check for second x-point in case of double-null equilibrium
+            i_xpoint_Z = find(np.min(raw['Zbbbs']),raw['Zbbbs']) # assuming lower null, JET-ILW shape for now
+            derived['R_x'] = raw['Rbbbs'][i_xpoint_Z]
+            derived['Z_x'] = raw['Zbbbs'][i_xpoint_Z]
 
         # compute LFS phi (toroidal flux in W/rad) grid from integrating q = d psi/d phi
         derived['phi'] = integrate.cumtrapz(raw['qpsi'],derived['psi'],initial=0)
@@ -327,9 +340,11 @@ class Equilibrium:
         psiRZ_norm = abs(raw['psiRZ'] - raw['psimag'])/(raw['psisep'] - raw['psimag'])
         derived['rhoRZ_pol'] = np.sqrt(psiRZ_norm)
 
-        derived['phiRZ'] = interpolate.interp1d(derived['psi'],derived['phi'],bounds_error=False)(raw['psiRZ'])
+        derived['phiRZ'] = interpolate.interp1d(derived['psi'],derived['phi'],kind=5,bounds_error=False)(raw['psiRZ'])
+        '''
         # repair nan values in phiRZ, first find the indexes of the nan values
         ij_nan = np.argwhere(np.isnan(derived['phiRZ']))
+        print(ij_nan)
         for _nan in ij_nan:
             i_nan = _nan[0]
             j_nan = _nan[1]
@@ -337,20 +352,16 @@ class Equilibrium:
                 j_nan_min = j_nan-1
             else:
                 j_nan_min = j_nan+1
-            if j_nan != raw['nw']-1:
+            if j_nan != raw['nh']-1:
                 j_nan_plus = j_nan+1
             else:
                 j_nan_plus = j_nan-1
             # cycle through the nan values and compute a weighted sum of the last and earliest non-nan values
             derived['phiRZ'][i_nan,j_nan] = 0.5*(derived['phiRZ'][i_nan,j_nan_min]+derived['phiRZ'][i_nan,j_nan_plus]) 
+        '''
 
         phiRZ_norm = abs(derived['phiRZ'])/(derived['phi'][-1])
         derived['rhoRZ_tor'] = np.sqrt(phiRZ_norm)
-
-        # find the R,Z values of the x-point, !TODO: should add check for second x-point in case of double-null equilibrium
-        i_xpoint_Z = find(np.min(raw['Zbbbs']),raw['Zbbbs']) # assuming lower null, JET-ILW shape for now
-        derived['R_x'] = raw['Rbbbs'][i_xpoint_Z]
-        derived['Z_x'] = raw['Zbbbs'][i_xpoint_Z]
 
         # compute the toroidal magnetic field and current density
         derived['B_tor'] = raw['ffprime']/derived['R']
@@ -519,13 +530,13 @@ class Equilibrium:
 
         refine=None
         # refine the R,Z and psiRZ grids if the eqdsk resolution is below 512x512
-        if self.raw['nw'] < 512:
-            refine = int(512/self.raw['nw'])
+        if self.raw['nw'] < 512 or self.raw['nh'] < 512:
+            refine = 512
 
         # refine the psi R,Z grid if refine
-        if refine!=None:
-            R_fine = np.linspace(R[0],R[-1],refine*len(R))
-            Z_fine = np.linspace(Z[0],Z[-1],refine*len(Z))
+        if refine:
+            R_fine = np.linspace(R[0],R[-1],refine)
+            Z_fine = np.linspace(Z[0],Z[-1],refine)
             psiRZ = interpolate.interp2d(R,Z,psiRZ)(R_fine,Z_fine)
             R=R_fine
             Z=Z_fine
