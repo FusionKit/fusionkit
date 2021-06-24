@@ -299,8 +299,8 @@ class Equilibrium:
 
         if 'Rbbbs' in raw and 'Zbbbs' in raw:
             # find the indexes of 'zmag' on the high field side (hfs) and low field side (lfs) of the separatrix
-            i_Zmag_hfs = find(raw['Zmag'],raw['Zbbbs'][:int(len(raw['Zbbbs'])/2)])
-            i_Zmag_lfs = int(len(raw['Zbbbs'])/2)+find(raw['Zmag'],raw['Zbbbs'][int(len(raw['Zbbbs'])/2):])
+            i_Zmag_hfs = int(len(raw['Zbbbs'])/3)+find(raw['Zmag'],raw['Zbbbs'][int(len(raw['Zbbbs'])/3):int(2*len(raw['Zbbbs'])/3)])
+            i_Zmag_lfs = int(2*len(raw['Zbbbs'])/3)+find(raw['Zmag'],raw['Zbbbs'][int(2*len(raw['Zbbbs'])/3):])
             
             # find the index of 'zmag' in the R,Z grid
             i_Zmag = find(raw['Zmag'],derived['Z'])
