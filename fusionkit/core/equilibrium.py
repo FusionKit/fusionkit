@@ -141,7 +141,7 @@ class Equilibrium:
             sanity_pair = [keypair for keypair in self.raw.keys() if keypair.startswith(key)][1]
             #print(sanity_pair)
             if self.raw[key]!=self.raw[sanity_pair]:
-                exit('Inconsistent '+key+': %7.4g, %7.4g'%(self.raw[key], self.raw[sanity_pair])+'. CHECK YOUR EQDSK FILE!')
+                raise ValueError('Inconsistent '+key+': %7.4g, %7.4g'%(self.raw[key], self.raw[sanity_pair])+'. CHECK YOUR EQDSK FILE!')
         
         if 'Rbbbs' in self.raw and 'Zbbbs' in self.raw:
             # ensure the boundary coordinates are stored from midplane lfs to midplane hfs
@@ -521,10 +521,10 @@ class Equilibrium:
                     x = self.derived[x_label]
                     psi = self.derived['psi']
                 else:
-                    exit('Equilibrium.fluxsurface_find error: Did not receive enough inputs to determine psi of the flux surface, check your inputs!')
+                    raise SyntaxError('Equilibrium.fluxsurface_find error: Did not receive enough inputs to determine psi of the flux surface, check your inputs!')
                 psi_fs = interpolate.interp1d(x,psi,kind='cubic')(x_fs)
         else:
-            exit('Equilibrium.fluxsurface_find error: No radial position of the flux surface was specified, check your inputs!')
+            raise SyntaxError('Equilibrium.fluxsurface_find error: No radial position of the flux surface was specified, check your inputs!')
         
         fs['psi'] = float(psi_fs)
 
@@ -742,9 +742,9 @@ class Equilibrium:
                 fs['Z_bottom'] = np.min(Z_fs)
                 fs['R_bottom'] = R_fs[find(fs['Z_bottom'],Z_fs)]
             else:
-                exit('Equilibibrium.fluxsurface_extrema error: No average elevation provided for the target flux surface, check your inputs!')
+                raise SyntaxError('Equilibibrium.fluxsurface_extrema error: No average elevation provided for the target flux surface, check your inputs!')
         else:
-            exit('Equilibibrium.fluxsurface_extrema error: No poloidal flux value for target flux surface was provided, check your inputs!')
+            raise SyntaxError('Equilibibrium.fluxsurface_extrema error: No poloidal flux value for target flux surface was provided, check your inputs!')
 
         if return_self:
             # check if there is already an entry for the flux surface in Equilibrium.fluxsurfaces
