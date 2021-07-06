@@ -49,23 +49,23 @@ class Equilibrium:
         # specify the eqdsk file formate, based on 'G EQDSK FORMAT - L Lao 2/7/97'
         self.eqdsk_format = {
             0:{'vars':['code','case','idum','nw','nh'],'size':[5]},
-            1:{'vars':['Rdim', 'Zdim', 'Rcentr', 'Rmin', 'Zmid'],'size':[5]},
-            2:{'vars':['Rmag', 'Zmag', 'psimag', 'psisep', 'Bcentr'],'size':[5]},
-            3:{'vars':['current', 'psimag2', 'xdum', 'Rmag2', 'xdum'],'size':[5]},
-            4:{'vars':['Zmag2', 'xdum', 'psisep2', 'xdum', 'xdum'],'size':[5]},
+            1:{'vars':['rdim', 'zdim', 'rcentr', 'rleft', 'zmid'],'size':[5]},
+            2:{'vars':['rmaxis', 'zmaxis', 'simag', 'sibry', 'bcentr'],'size':[5]},
+            3:{'vars':['current', 'simag2', 'xdum', 'rmaxis2', 'xdum'],'size':[5]},
+            4:{'vars':['zmaxis2', 'xdum', 'sibry2', 'xdum', 'xdum'],'size':[5]},
             5:{'vars':['fpol'],'size':['nw']},
-            6:{'vars':['pressure'],'size':['nw']},
+            6:{'vars':['pres'],'size':['nw']},
             7:{'vars':['ffprime'],'size':['nw']},
             8:{'vars':['pprime'],'size':['nw']},
-            9:{'vars':['psiRZ'],'size':['nw','nh']},
+            9:{'vars':['psirz'],'size':['nw','nh']},
             10:{'vars':['qpsi'],'size':['nw']},
             11:{'vars':['nbbbs','limitr'],'size':[2]},
-            12:{'vars':['Rbbbs','Zbbbs'],'size':['nbbbs']},
-            13:{'vars':['Rlim','Zlim'],'size':['limitr']},
+            12:{'vars':['rbbbs','zbbbs'],'size':['nbbbs']},
+            13:{'vars':['rlim','zlim'],'size':['limitr']},
         }
 
         # specify the sanity values used for consistency check of eqdsk file
-        self.sanity_values = ['Rmag','Zmag','psimag','psisep']
+        self.sanity_values = ['rmaxis','zmaxis','simag','sibry']
         self.max_values = 5 # maximum number of values per line
         
         # read the g-file
@@ -143,11 +143,11 @@ class Equilibrium:
             if self.raw[key]!=self.raw[sanity_pair]:
                 raise ValueError('Inconsistent '+key+': %7.4g, %7.4g'%(self.raw[key], self.raw[sanity_pair])+'. CHECK YOUR EQDSK FILE!')
         
-        if 'Rbbbs' in self.raw and 'Zbbbs' in self.raw:
+        if 'rbbbs' in self.raw and 'zbbbs' in self.raw:
             # ensure the boundary coordinates are stored from midplane lfs to midplane hfs
-            i_split = find(np.max(self.raw['Rbbbs']),self.raw['Rbbbs'])
-            self.raw['Rbbbs'] = np.hstack((self.raw['Rbbbs'][i_split:],self.raw['Rbbbs'][:i_split]))
-            self.raw['Zbbbs'] = np.hstack((self.raw['Zbbbs'][i_split:],self.raw['Zbbbs'][:i_split]))
+            i_split = find(np.max(self.raw['rbbbs']),self.raw['rbbbs'])
+            self.raw['rbbbs'] = np.hstack((self.raw['rbbbs'][i_split:],self.raw['rbbbs'][:i_split]))
+            self.raw['zbbbs'] = np.hstack((self.raw['zbbbs'][i_split:],self.raw['zbbbs'][:i_split]))
 
         if add_derived:
             self.add_derived()
@@ -287,43 +287,43 @@ class Equilibrium:
         fluxsurfaces = self.fluxsurfaces
 
         # compute R and Z grid vectors
-        derived['R'] = np.array([raw['Rmin'] + i*(raw['Rdim']/(raw['nw']-1)) for i in range(raw['nw'])])
-        derived['Z'] = np.array([raw['Zmid'] - 0.5*raw['Zdim'] + i*(raw['Zdim']/(raw['nh']-1)) for i in range(raw['nh'])])
+        derived['R'] = np.array([raw['rleft'] + i*(raw['rdim']/(raw['nw']-1)) for i in range(raw['nw'])])
+        derived['Z'] = np.array([raw['zmid'] - 0.5*raw['zdim'] + i*(raw['zdim']/(raw['nh']-1)) for i in range(raw['nh'])])
 
         # equidistant psi grid
-        derived['psi'] = np.linspace(raw['psimag'],raw['psisep'],raw['nw'])
+        derived['psi'] = np.linspace(raw['simag'],raw['sibry'],raw['nw'])
 
         # corresponding rho_pol grid
-        psi_norm = (derived['psi'] - raw['psimag'])/(raw['psisep'] - raw['psimag'])
+        psi_norm = (derived['psi'] - raw['simag'])/(raw['sibry'] - raw['simag'])
         derived['rho_pol'] = np.sqrt(psi_norm)
 
-        if 'Rbbbs' in raw and 'Zbbbs' in raw:
-            # find the indexes of 'zmag' on the high field side (hfs) and low field side (lfs) of the separatrix
-            i_Zmag_hfs = int(len(raw['Zbbbs'])/3)+find(raw['Zmag'],raw['Zbbbs'][int(len(raw['Zbbbs'])/3):int(2*len(raw['Zbbbs'])/3)])
-            i_Zmag_lfs = int(2*len(raw['Zbbbs'])/3)+find(raw['Zmag'],raw['Zbbbs'][int(2*len(raw['Zbbbs'])/3):])
+        if 'rbbbs' in raw and 'zbbbs' in raw:
+            # find the indexes of 'zmaxis' on the high field side (hfs) and low field side (lfs) of the separatrix
+            i_zmaxis_hfs = int(len(raw['zbbbs'])/3)+find(raw['zmaxis'],raw['zbbbs'][int(len(raw['zbbbs'])/3):int(2*len(raw['zbbbs'])/3)])
+            i_zmaxis_lfs = int(2*len(raw['zbbbs'])/3)+find(raw['zmaxis'],raw['zbbbs'][int(2*len(raw['zbbbs'])/3):])
             
-            # find the index of 'zmag' in the R,Z grid
-            i_Zmag = find(raw['Zmag'],derived['Z'])
+            # find the index of 'zmaxis' in the R,Z grid
+            i_zmaxis = find(raw['zmaxis'],derived['Z'])
 
             # find indexes of separatrix on HFS, magnetic axis, separatrix on LFS in R
-            i_R_hfs = find(raw['Rbbbs'][i_Zmag_hfs],derived['R'][:int(len(derived['R'])/2)])
-            i_Rmag = find(raw['Rmag'],derived['R'])
-            i_R_lfs = int(len(derived['R'])/2)+find(raw['Rbbbs'][i_Zmag_lfs],derived['R'][int(len(derived['R'])/2):])
+            i_R_hfs = find(raw['rbbbs'][i_zmaxis_hfs],derived['R'][:int(len(derived['R'])/2)])
+            i_rmaxis = find(raw['rmaxis'],derived['R'])
+            i_R_lfs = int(len(derived['R'])/2)+find(raw['rbbbs'][i_zmaxis_lfs],derived['R'][int(len(derived['R'])/2):])
 
             # HFS and LFS R and psirz
-            R_hfs = derived['R'][i_R_hfs:i_Rmag]
-            R_lfs = derived['R'][i_Rmag:i_R_lfs]
-            psiRZmag_hfs = raw['psiRZ'][i_Zmag,i_R_hfs:i_Rmag]
-            psiRZmag_lfs = raw['psiRZ'][i_Zmag,i_Rmag:i_R_lfs]
+            R_hfs = derived['R'][i_R_hfs:i_rmaxis]
+            R_lfs = derived['R'][i_rmaxis:i_R_lfs]
+            psirzmaxis_hfs = raw['psirz'][i_zmaxis,i_R_hfs:i_rmaxis]
+            psirzmaxis_lfs = raw['psirz'][i_zmaxis,i_rmaxis:i_R_lfs]
 
-            # nonlinear R grid at 'Zmag' based on equidistant psi grid for 'fpol', 'pres', 'ffprime', 'pprime' and 'qpsi'
-            derived['R_psi_hfs'] = interpolate.interp1d(psiRZmag_hfs,R_hfs,fill_value='extrapolate')(derived['psi'][::-1])
-            derived['R_psi_lfs'] = interpolate.interp1d(psiRZmag_lfs,R_lfs,fill_value='extrapolate')(derived['psi'])
+            # nonlinear R grid at 'zmaxis' based on equidistant psi grid for 'fpol', 'pres', 'ffprime', 'pprime' and 'qpsi'
+            derived['R_psi_hfs'] = interpolate.interp1d(psirzmaxis_hfs,R_hfs,fill_value='extrapolate')(derived['psi'][::-1])
+            derived['R_psi_lfs'] = interpolate.interp1d(psirzmaxis_lfs,R_lfs,fill_value='extrapolate')(derived['psi'])
         
             # find the R,Z values of the x-point, !TODO: should add check for second x-point in case of double-null equilibrium
-            i_xpoint_Z = find(np.min(raw['Zbbbs']),raw['Zbbbs']) # assuming lower null, JET-ILW shape for now
-            derived['R_x'] = raw['Rbbbs'][i_xpoint_Z]
-            derived['Z_x'] = raw['Zbbbs'][i_xpoint_Z]
+            i_xpoint_Z = find(np.min(raw['zbbbs']),raw['zbbbs']) # assuming lower null, JET-ILW shape for now
+            derived['R_x'] = raw['rbbbs'][i_xpoint_Z]
+            derived['Z_x'] = raw['zbbbs'][i_xpoint_Z]
 
         # compute LFS phi (toroidal flux in W/rad) grid from integrating q = d psi/d phi
         derived['phi'] = integrate.cumtrapz(raw['qpsi'],derived['psi'],initial=0)
@@ -337,13 +337,13 @@ class Equilibrium:
         derived['rho_tor']  = np.sqrt(phi_norm)
 
         # compute the rho_pol and rho_tor grids corresponding to the R,Z grid
-        psiRZ_norm = abs(raw['psiRZ'] - raw['psimag'])/(raw['psisep'] - raw['psimag'])
-        derived['rhoRZ_pol'] = np.sqrt(psiRZ_norm)
+        psirz_norm = abs(raw['psirz'] - raw['simag'])/(raw['sibry'] - raw['simag'])
+        derived['rhorz_pol'] = np.sqrt(psirz_norm)
 
-        derived['phiRZ'] = interpolate.interp1d(derived['psi'],derived['phi'],kind=5,bounds_error=False)(raw['psiRZ'])
+        derived['phirz'] = interpolate.interp1d(derived['psi'],derived['phi'],kind=5,bounds_error=False)(raw['psirz'])
         '''
-        # repair nan values in phiRZ, first find the indexes of the nan values
-        ij_nan = np.argwhere(np.isnan(derived['phiRZ']))
+        # repair nan values in phirz, first find the indexes of the nan values
+        ij_nan = np.argwhere(np.isnan(derived['phirz']))
         print(ij_nan)
         for _nan in ij_nan:
             i_nan = _nan[0]
@@ -357,11 +357,11 @@ class Equilibrium:
             else:
                 j_nan_plus = j_nan-1
             # cycle through the nan values and compute a weighted sum of the last and earliest non-nan values
-            derived['phiRZ'][i_nan,j_nan] = 0.5*(derived['phiRZ'][i_nan,j_nan_min]+derived['phiRZ'][i_nan,j_nan_plus]) 
+            derived['phirz'][i_nan,j_nan] = 0.5*(derived['phirz'][i_nan,j_nan_min]+derived['phirz'][i_nan,j_nan_plus]) 
         '''
 
-        phiRZ_norm = abs(derived['phiRZ'])/(derived['phi'][-1])
-        derived['rhoRZ_tor'] = np.sqrt(phiRZ_norm)
+        phirz_norm = abs(derived['phirz'])/(derived['phi'][-1])
+        derived['rhorz_tor'] = np.sqrt(phirz_norm)
 
         # compute the toroidal magnetic field and current density
         derived['B_tor'] = raw['ffprime']/derived['R']
@@ -410,21 +410,21 @@ class Equilibrium:
                 stdout.flush()
                 # check that rho stays inside the lcfs
                 if rho_fs < 0.999:
-                    self.fluxsurface_find(x_fs=rho_fs,psiRZ=raw['psiRZ'],R=derived['R'],Z=derived['Z'],incl_miller_geo=incl_miller_geo,return_self=True)
+                    self.fluxsurface_find(x_fs=rho_fs,psirz=raw['psirz'],R=derived['R'],Z=derived['Z'],incl_miller_geo=incl_miller_geo,return_self=True)
             stdout.write('\n')
 
             # find the geometric center, minor radius and extrema of the lcfs manually
-            lcfs = self.fluxsurface_center(psi_fs=raw['psisep'],R_fs=raw['Rbbbs'],Z_fs=raw['Zbbbs'],psiRZ=raw['psiRZ'],R=derived['R'],Z=derived['Z'],incl_extrema=True)
-            lcfs.update({'R':raw['Rbbbs'],'Z':raw['Zbbbs']})
+            lcfs = self.fluxsurface_center(psi_fs=raw['sibry'],R_fs=raw['rbbbs'],Z_fs=raw['zbbbs'],psirz=raw['psirz'],R=derived['R'],Z=derived['Z'],incl_extrema=True)
+            lcfs.update({'R':raw['rbbbs'],'Z':raw['zbbbs']})
             if incl_miller_geo:
                 lcfs = self.fluxsurface_miller_geo(fs=lcfs)
             
             # add a zero at the start of all fluxsurface quantities and append the lcfs values to the end of the flux surface data
             for key in fluxsurfaces:
                 if key in ['R']:
-                    fluxsurfaces[key].insert(0,raw['Rmag'])
+                    fluxsurfaces[key].insert(0,raw['rmaxis'])
                 elif key in ['Z']:
-                    fluxsurfaces[key].insert(0,raw['Zmag'])
+                    fluxsurfaces[key].insert(0,raw['zmaxis'])
                 elif key in ['kappa','delta','zeta']:
                     fluxsurfaces[key].insert(0,fluxsurfaces[key][0])
                 else:
@@ -454,14 +454,14 @@ class Equilibrium:
             derived['s'] = derived['r']*np.gradient(np.log(raw['qpsi']),derived['r'],edge_order=2)
 
             # add several magnetic field quantities to derived
-            derived['Bref_eqdsk'] = raw['fpol'][0]/raw['Rmag']
+            derived['Bref_eqdsk'] = raw['fpol'][0]/raw['rmaxis']
             derived['Bref_miller'] = raw['fpol']/derived['Ro']
             #derived['B_unit'] = interpolate.interp1d(derived['r'],(1/derived['r'])*np.gradient(derived['phi'],derived['r'],edge_order=2))(derived['r'])
             with np.errstate(divide='ignore'):
                 derived['B_unit'] = interpolate.interp1d(derived['r'],(raw['qpsi']/derived['r'])*np.gradient(derived['psi'],derived['r']))(derived['r'])
             
             # add beta and alpha, assuming the pressure profile included in the equilibrium and Bref=derived['Bref_eqdsk]
-            derived['p'] = raw['pressure']
+            derived['p'] = raw['pres']
             derived['beta'] = 8*np.pi*1E-7*derived['p']/(derived['Bref_eqdsk']**2)
             derived['alpha'] = -1*raw['qpsi']**2*derived['Ro']*np.gradient(derived['beta'],derived['r'])
 
@@ -484,7 +484,7 @@ class Equilibrium:
             
             return self
     
-    def fluxsurface_find(self,psi_fs=None,psi=None,x_fs=None,x=None,x_label='rho_tor',psiRZ=None,R=None,Z=None,incl_miller_geo=False,return_self=False):
+    def fluxsurface_find(self,psi_fs=None,psi=None,x_fs=None,x=None,x_label='rho_tor',psirz=None,R=None,Z=None,incl_miller_geo=False,return_self=False):
         '''
         #Function to find the R,Z trace of a flux surface 
 
@@ -498,7 +498,7 @@ class Equilibrium:
 
         :param x_label: string of the radial flux label, options (for now) are [default] 'rho_tor', 'rho_pol', 'psi' and 'r'
 
-        :param psiRZ: array containing the R,Z map of the poloidal flux psi of the magnetic equilibrium
+        :param psirz: array containing the R,Z map of the poloidal flux psi of the magnetic equilibrium
 
         :param R: array vector of R grid mesh
 
@@ -521,7 +521,7 @@ class Equilibrium:
                     x = self.derived[x_label]
                     psi = self.derived['psi']
                 else:
-                    raise SyntaxError('Equilibrium.fluxsurface_find error: Did not receive enough inputs to determine psi of the flux surface, check your inputs!')
+                    raise SyntaxError('Equilibrium.fluxsurface_find error: Did not receive enough inputs to deterlefte psi of the flux surface, check your inputs!')
                 psi_fs = interpolate.interp1d(x,psi,kind='cubic')(x_fs)
         else:
             raise SyntaxError('Equilibrium.fluxsurface_find error: No radial position of the flux surface was specified, check your inputs!')
@@ -529,7 +529,7 @@ class Equilibrium:
         fs['psi'] = float(psi_fs)
 
         refine=None
-        # refine the R,Z and psiRZ grids if the eqdsk resolution is below 512x512
+        # refine the R,Z and psirz grids if the eqdsk resolution is below 512x512
         if self.raw['nw'] < 512 or self.raw['nh'] < 512:
             refine = 512
 
@@ -537,33 +537,33 @@ class Equilibrium:
         if refine:
             R_fine = np.linspace(R[0],R[-1],refine)
             Z_fine = np.linspace(Z[0],Z[-1],refine)
-            psiRZ = interpolate.interp2d(R,Z,psiRZ)(R_fine,Z_fine)
+            psirz = interpolate.interp2d(R,Z,psirz)(R_fine,Z_fine)
             R=R_fine
             Z=Z_fine
 
-        # find the approximate magnetic axis in psiRZ
-        i_Rmag = np.where(psiRZ == np.min(psiRZ))[1][0]
-        Zmag = Z[np.where(psiRZ == np.min(psiRZ))[0][0]]
+        # find the approximate magnetic axis in psirz
+        i_rmaxis = np.where(psirz == np.min(psirz))[1][0]
+        zmaxis = Z[np.where(psirz == np.min(psirz))[0][0]]
 
-        # find the R values of the flux surface at 'Zmag' and the corresponding closest indexes in derived['R']
-        psiRZmag = interpolate.interp2d(R,Z,psiRZ)(R,Zmag)
+        # find the R values of the flux surface at 'zmaxis' and the corresponding closest indexes in derived['R']
+        psirzmaxis = interpolate.interp2d(R,Z,psirz)(R,zmaxis)
 
-        R_fs_hfs = interpolate.interp1d(psiRZmag[:i_Rmag],R[:i_Rmag])(psi_fs)
+        R_fs_hfs = interpolate.interp1d(psirzmaxis[:i_rmaxis],R[:i_rmaxis])(psi_fs)
         i_R_hfs = find(R_fs_hfs,R)
 
-        R_fs_lfs = interpolate.interp1d(psiRZmag[i_Rmag:],R[i_Rmag:])(psi_fs)
+        R_fs_lfs = interpolate.interp1d(psirzmaxis[i_rmaxis:],R[i_rmaxis:])(psi_fs)
         i_R_lfs = find(R_fs_lfs,R)
 
         # setup arrays to store R,Z coordinates of the flux surface
         R_fs = R[i_R_hfs:i_R_lfs]
         Z_fs = np.zeros((len(R_fs),2))
 
-        # find the top and bottom Z of the flux surface by slicing psiRZ by R between R_fs_hfs and R_fs_lfs to ensure max(Z_fs) and min(Z_fs) are included
+        # find the top and bottom Z of the flux surface by slicing psirz by R between R_fs_hfs and R_fs_lfs to ensure max(Z_fs) and min(Z_fs) are included
         for i_R in range(i_R_hfs,i_R_lfs):
             i = i_R - i_R_hfs
 
-            # take a slice of psiRZ
-            psiZ = np.array(psiRZ[:,i_R])
+            # take a slice of psirz
+            psiZ = np.array(psirz[:,i_R])
 
             # find the minimum of psi in the slice to split the R,Z plane
             i_psiZ_min = find(np.min(psiZ),psiZ)
@@ -576,7 +576,7 @@ class Equilibrium:
             Z_fs[i,0] = interpolate.interp1d(psiZ[i_psiZ_min:i_psiZ_min+i_psiZ_upper_max],Z[i_psiZ_min:i_psiZ_min+i_psiZ_upper_max],bounds_error=False)(psi_fs)
             Z_fs[i,1] = interpolate.interp1d(psiZ[i_psiZ_lower_max:i_psiZ_min],Z[i_psiZ_lower_max:i_psiZ_min],bounds_error=False)(psi_fs)
         
-        # find the top and bottom of the Z gap at the inner and outer sides as a consequence of assuming min(R_fs) and max(R_fs) to be on Zmag
+        # find the top and bottom of the Z gap at the inner and outer sides as a consequence of assuming min(R_fs) and max(R_fs) to be on zmaxis
         i_Z_upper = find(np.max([Z_fs[np.where(~np.isnan(Z_fs[:,0]))[0][0],0],Z_fs[np.where(~np.isnan(Z_fs[:,0]))[0][-1],0]]),Z)
         i_Z_lower = find(np.min([Z_fs[np.where(~np.isnan(Z_fs[:,1]))[0][0],1],Z_fs[np.where(~np.isnan(Z_fs[:,1]))[0][-1],1]]),Z)
 
@@ -584,11 +584,11 @@ class Equilibrium:
         Z_fs_ = Z[i_Z_lower:i_Z_upper]
         R_fs_ = np.zeros((len(Z_fs_),2))
 
-        # find the inner and outer R of the flux surface by slicing psiRZ by Z between Z[i_Z_lower] and Z[i_Z_upper] to ensure min(R_fs) and max(R_fs) are included
+        # find the inner and outer R of the flux surface by slicing psirz by Z between Z[i_Z_lower] and Z[i_Z_upper] to ensure min(R_fs) and max(R_fs) are included
         for i_Z in range(i_Z_lower,i_Z_upper):
             i = i_Z - i_Z_lower
-            # take a slice of psiRZ
-            psiR = np.array(psiRZ[i_Z,:])
+            # take a slice of psirz
+            psiR = np.array(psirz[i_Z,:])
 
             # find the minimum of psi in the slice to split the R,Z plane
             i_psiR_min = find(np.min(psiR),psiR)
@@ -600,14 +600,14 @@ class Equilibrium:
         # find the glue edges
         i_upper = sorted(find(Z[i_Z_upper],Z_fs[:,0],n=4))
         i_lower = sorted(find(Z[i_Z_lower],Z_fs[:,1],n=4))
-        i_Zmag_fs_ = find(Zmag,Z_fs_)
+        i_zmaxis_fs_ = find(zmaxis,Z_fs_)
 
         # merge the upper and lower halves of the flux surface coordinates with the side slices such that the trace starts and ends at the lfs mid-plane
-        fs['R'] = np.hstack((R_fs_[i_Zmag_fs_:,1],R_fs[i_upper[0]:i_upper[-1]][::-1],R_fs_[:-2,0][::-1],R_fs[i_lower[0]+1:i_lower[-1]],R_fs_[:i_Zmag_fs_+1,1]))
-        fs['Z'] = np.hstack((Z_fs_[i_Zmag_fs_:],Z_fs[i_upper[0]:i_upper[-1],0][::-1],Z_fs_[:-2][::-1],Z_fs[i_lower[0]+1:i_lower[-1],1],Z_fs_[:i_Zmag_fs_+1]))
+        fs['R'] = np.hstack((R_fs_[i_zmaxis_fs_:,1],R_fs[i_upper[0]:i_upper[-1]][::-1],R_fs_[:-2,0][::-1],R_fs[i_lower[0]+1:i_lower[-1]],R_fs_[:i_zmaxis_fs_+1,1]))
+        fs['Z'] = np.hstack((Z_fs_[i_zmaxis_fs_:],Z_fs[i_upper[0]:i_upper[-1],0][::-1],Z_fs_[:-2][::-1],Z_fs[i_lower[0]+1:i_lower[-1],1],Z_fs_[:i_zmaxis_fs_+1]))
         
         # find the flux surface center quantities and add them to the flux surface dict
-        fs.update(self.fluxsurface_center(psi_fs=psi_fs,R_fs=fs['R'],Z_fs=fs['Z'],psiRZ=psiRZ,R=R,Z=Z,incl_extrema=True))
+        fs.update(self.fluxsurface_center(psi_fs=psi_fs,R_fs=fs['R'],Z_fs=fs['Z'],psirz=psirz,R=R,Z=Z,incl_extrema=True))
 
         if incl_miller_geo:
             fs = self.fluxsurface_miller_geo(fs=fs)
@@ -643,7 +643,7 @@ class Equilibrium:
             # return the bare flux surface dict
             return fs
 
-    def fluxsurface_center(self,psi_fs=None,R_fs=None,Z_fs=None,psiRZ=None,R=None,Z=None,incl_extrema=False,return_self=False):
+    def fluxsurface_center(self,psi_fs=None,R_fs=None,Z_fs=None,psirz=None,R=None,Z=None,incl_extrema=False,return_self=False):
         '''
         Function to find the geometric center of a flux surface trace defined by R_fs,Z_fs and psi_fs
 
@@ -653,7 +653,7 @@ class Equilibrium:
 
         :param Z_fs: array containing the vertical coordinates of the flux surface trace
 
-        :param psiRZ: array containing the R,Z map of the poloidal flux psi of the magnetic equilibrium
+        :param psirz: array containing the R,Z map of the poloidal flux psi of the magnetic equilibrium
 
         :param R: array vector of R grid mesh
 
@@ -674,7 +674,7 @@ class Equilibrium:
         #print(fs['Z0'])
 
         # find the extrema of the flux surface in the radial direction at the average elevation
-        fs_extrema = self.fluxsurface_extrema(psi_fs=psi_fs,R_fs=R_fs,Z_fs=Z_fs,Z0_fs=fs['Z0'],psiRZ=psiRZ,R=R,Z=Z)
+        fs_extrema = self.fluxsurface_extrema(psi_fs=psi_fs,R_fs=R_fs,Z_fs=Z_fs,Z0_fs=fs['Z0'],psirz=psirz,R=R,Z=Z)
         R_out = fs_extrema['R_out']
         R_in = fs_extrema['R_in']
 
@@ -698,7 +698,7 @@ class Equilibrium:
             # return the bare flux surface dict
             return fs
 
-    def fluxsurface_extrema(self,psi_fs=None,R_fs=None,Z_fs=None,Z0_fs=None,psiRZ=None,R=None,Z=None,return_self=False):
+    def fluxsurface_extrema(self,psi_fs=None,R_fs=None,Z_fs=None,Z0_fs=None,psirz=None,R=None,Z=None,return_self=False):
         '''
         Function to find the extrema in R and Z of a flux surface trace defined by R_fs,Z_fs and psi_fs
 
@@ -710,7 +710,7 @@ class Equilibrium:
 
         :param Z0_fs: float of the average elevation of the flux surface
 
-        :param psiRZ: array containing the R,Z map of the poloidal flux psi of the magnetic equilibrium
+        :param psirz: array containing the R,Z map of the poloidal flux psi of the magnetic equilibrium
 
         :param R: array vector of R grid mesh
 
@@ -729,12 +729,12 @@ class Equilibrium:
             # check if the midplane of the flux surface is provided
             if Z0_fs != None:
                 # find the flux as function of the horizontal coordinate at the midplane of the flux surface
-                psiRZ0 = interpolate.interp2d(R,Z,psiRZ)(R,Z0_fs)
-                #print(psiRZ0)
+                psirz0 = interpolate.interp2d(R,Z,psirz)(R,Z0_fs)
+                #print(psirz0)
 
                 # find the extrema in R of the flux surface at the midplane
-                fs['R_out'] = float(interpolate.interp1d(psiRZ0[int(len(psiRZ0)/2):],R[int(len(psiRZ0)/2):],bounds_error=False)(psi_fs))
-                fs['R_in'] = float(interpolate.interp1d(psiRZ0[:int(len(psiRZ0)/2)],R[:int(len(psiRZ0)/2)],bounds_error=False)(psi_fs))
+                fs['R_out'] = float(interpolate.interp1d(psirz0[int(len(psirz0)/2):],R[int(len(psirz0)/2):],bounds_error=False)(psi_fs))
+                fs['R_in'] = float(interpolate.interp1d(psirz0[:int(len(psirz0)/2)],R[:int(len(psirz0)/2)],bounds_error=False)(psi_fs))
 
                 # find the extrema in Z of the flux surface
                 fs['Z_top'] = np.max(Z_fs)
