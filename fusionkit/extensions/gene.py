@@ -135,10 +135,13 @@ class GENE:
         parallel_nl = {
             "nl_name" : "parallelization", 
         }
-        if gene_config['solver_type'] == 'IV':
-            parallel_nl["n_parallel_sims"] = 2
-        if gene_config['solver_type'] == 'EV':
-            parallel_nl["n_parallel_sims"] = 8
+        if 'n_parallel_sims' in gene_config:
+            parallel_nl.update({"n_parallel_sims" : gene_config['n_parallel_sims']})
+        else:
+            if gene_config['solver_type'] == 'IV':
+                parallel_nl["n_parallel_sims"] = 2
+            if gene_config['solver_type'] == 'EV':
+                parallel_nl["n_parallel_sims"] = 8
 
         ## Box namelist
         box_nl = {
@@ -148,13 +151,17 @@ class GENE:
             "nky0" : 1,
             "nz0" : gene_config['nz0'],
             "nv0" : gene_config['nv0'],
-            "nw0" : gene_config['nw0'],
-            "kymin" : gene_config['kymin'],
+            "nw0" : gene_config['nw0'],}
+        if gene_config['kymin']:
+            box_nl["kymin"] = gene_config['kymin']
+        box_nl.update({
             "lv" : gene_config['lv'],
             "lw" : gene_config['lw'],
             "mu_grid_type" : gene_config['mu_grid_type'],
-            "n0_global" : -1111,
-        }
+            "n0_global" : gene_config['n0_global'],
+        })
+        if box_nl['n0_global'] != -1111:
+            box_nl.update({'adapt_ly': '.T.'})
 
         ## I/O namelist
         io_nl = {
@@ -193,12 +200,12 @@ class GENE:
             }
         )
         if gene_config['beta']:
-            general_nl.update({"beta" : beta})
+            general_nl.update({"beta" : gene_config['beta']})
         general_nl.update(
             {"bpar" : '.F.',
             "debye2" : -1,
             "hyp_z" : gene_config['hyp_z'],
-            "init_cond" : "'alm'",}
+            "init_cond" : gene_config['init_cond'],}
         )
 
         ## External contribution namelist
@@ -498,12 +505,12 @@ class GENE:
             }
         )
         if gene_config['beta']:
-            general_nl.update({"beta" : beta})
+            general_nl.update({"beta" : gene_config['beta']})
         general_nl.update(
             {"bpar" : '.F.',
             "debye2" : -1,
             "hyp_z" : gene_config['hyp_z'],
-            "init_cond" : "'alm'",}
+            "init_cond" : gene_config['init_cond'],}
         )
 
         ## External contribution namelist
@@ -622,7 +629,7 @@ class GENE:
         print('Generated GENE input file at: '+gene_nl['meta']["path"]+gene_nl['meta']["file"])
 
     def io_var_search(host=None,search_dir=None,search_var=None,search_type=None,verbose=False):
-        search_commands = ['cd {}'.format(search_dir),
+        search_commands = ['cd {};'.format(search_dir),
                         'grep {} parameters_*;'.format(search_var)]
         response = Remote().send_commands(host=host,commands=''.join(search_commands),verbose=False)
         # create storage for all the partially matching grep results
@@ -653,7 +660,7 @@ class GENE:
             for i_scan_var in searchlist[search_var]:
                 _scanlist.append(searchlist[search_var][i_scan_var])
             if verbose:
-                print('{}: {}'.format(search_var,_scanlist))
+                print('{} = {} !scanlist: {}'.format(search_var,_scanlist[0],', '.join(map(str,_scanlist))))
             return _scanlist
         elif search_type == 'five_point_scan':
             _five_point_scan = []
@@ -665,3 +672,31 @@ class GENE:
             if verbose:
                 print('{}: {}'.format(search_var,_five_point_scan))
             return _five_point_scan
+
+    def create_new_run(host=None,genecode_dir=None,input_dir=None,duration=None,nodes=2,budget=None,verbose=False):
+        print('Creating new run directory on remote {}...'.format(host))
+        create_run_commands = ['cd {};'.format(genecode_dir),
+                            'if [ ! -d "{input_dir}" ]; then ./newprob; mv prob01 {input_dir}; fi;'.format(input_dir=input_dir),
+                            'cd {};'.format(input_dir),
+                            'sed -i "s/.\{2\}:00:00'+'/{}:00:00/g" submit.cmd;'.format(duration),
+                            'sed -i "s/nodes=1/nodes={}/g" submit.cmd;'.format(nodes),
+                            'sed -i "s/FUSIO_ALL/{}/g" submit.cmd;'.format(budget),
+                            'sed -i "0,/srun -l/s//#srun -l/" submit.cmd;',
+                            'sed -i "s/#.\/scanscript/.\/scanscript/" submit.cmd;',
+                            'sed -i "s/--mps 4/--mps {}/" submit.cmd;'.format(nodes)]
+
+        response = Remote().send_commands(host=host,
+                                        commands=''.join(create_run_commands),
+                                        verbose=verbose)
+        return response
+    
+    def submit_remote_run(host=None,genecode_dir=None,input_dir=None,user=None,verbose=True):
+        print('Submitting job on remote {}...'.format(host))
+        submit_run_commands = ['cd {}/{};'.format(genecode_dir,input_dir),
+                               'sbatch submit.cmd;',
+                               'squeue -u {};'.format(user)]
+
+        response = Remote().send_commands(host=host,
+                                        commands=''.join(submit_run_commands),
+                                        verbose=verbose)
+        return response
