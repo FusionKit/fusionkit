@@ -9,6 +9,7 @@ setup(
     classifiers=['Programming Language :: Python :: 3', 
                 'Operating System :: OS Independent'],
     keywords='fusion simulation toolkit',
-    packages=['fusionkit'],
-    package_dir={'fusionkit':'fusionkit'}
+    packages=find_packages(),
+    package_dir={'fusionkit':'fusionkit'},
+    install_requires = ['numpy', 'scipy', 'pandas'],
 )
