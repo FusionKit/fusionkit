@@ -413,19 +413,22 @@ class Equilibrium:
                     self.fluxsurface_find(x_fs=rho_fs,psirz=raw['psirz'],R=derived['R'],Z=derived['Z'],incl_miller_geo=incl_miller_geo,return_self=True)
             stdout.write('\n')
 
-            # find the geometric center, minor radius and extrema of the lcfs manually
-            lcfs = self.fluxsurface_center(psi_fs=raw['sibry'],R_fs=raw['rbbbs'],Z_fs=raw['zbbbs'],psirz=raw['psirz'],R=derived['R'],Z=derived['Z'],incl_extrema=True)
-            lcfs.update({'R':raw['rbbbs'],'Z':raw['zbbbs']})
+            if 'rbbbs' in raw and 'zbbbs' in raw:
+                # find the geometric center, minor radius and extrema of the lcfs manually
+                lcfs = self.fluxsurface_center(psi_fs=raw['sibry'],R_fs=raw['rbbbs'],Z_fs=raw['zbbbs'],psirz=raw['psirz'],R=derived['R'],Z=derived['Z'],incl_extrema=True)
+                lcfs.update({'R':raw['rbbbs'],'Z':raw['zbbbs']})
+            else:
+                lcfs = self.fluxsurface_find(x_fs=1.0,psi_fs=raw['sibry'],psirz=raw['psirz'],R=derived['R'],Z=derived['Z'],return_self=False)
             if incl_miller_geo:
                 lcfs = self.fluxsurface_miller_geo(fs=lcfs)
             
             # add a zero at the start of all fluxsurface quantities and append the lcfs values to the end of the flux surface data
             for key in fluxsurfaces:
-                if key in ['R']:
+                if key in ['R','R0']:
                     fluxsurfaces[key].insert(0,raw['rmaxis'])
-                elif key in ['Z']:
+                elif key in ['Z','Z0']:
                     fluxsurfaces[key].insert(0,raw['zmaxis'])
-                elif key in ['kappa','delta','zeta']:
+                elif key in ['kappa','delta','zeta','s_kappa','s_delta','s_zeta','R_top','R_bottom','Z_top','Z_bottom','R_sym_top','R_sym_bottom','Z_sym_top','Z_sym_bottom']:
                     fluxsurfaces[key].insert(0,fluxsurfaces[key][0])
                 else:
                     fluxsurfaces[key].insert(0,0.*fluxsurfaces[key][-1])
@@ -603,9 +606,9 @@ class Equilibrium:
         i_zmaxis_fs_ = find(zmaxis,Z_fs_)
 
         # merge the upper and lower halves of the flux surface coordinates with the side slices such that the trace starts and ends at the lfs mid-plane
-        fs['R'] = np.hstack((R_fs_[i_zmaxis_fs_:,1],R_fs[i_upper[0]:i_upper[-1]][::-1],R_fs_[:-2,0][::-1],R_fs[i_lower[0]+1:i_lower[-1]],R_fs_[:i_zmaxis_fs_+1,1]))
-        fs['Z'] = np.hstack((Z_fs_[i_zmaxis_fs_:],Z_fs[i_upper[0]:i_upper[-1],0][::-1],Z_fs_[:-2][::-1],Z_fs[i_lower[0]+1:i_lower[-1],1],Z_fs_[:i_zmaxis_fs_+1]))
-        
+        fs['R'] = np.hstack((R_fs_[i_zmaxis_fs_:,1],R_fs[i_upper[0]:i_upper[-1]][::-1],R_fs_[:-3,0][::-1],R_fs[i_lower[0]+1:i_lower[-1]],R_fs_[:i_zmaxis_fs_+1,1]))
+        fs['Z'] = np.hstack((Z_fs_[i_zmaxis_fs_:],Z_fs[i_upper[0]:i_upper[-1],0][::-1],Z_fs_[:-3][::-1],Z_fs[i_lower[0]+1:i_lower[-1],1],Z_fs_[:i_zmaxis_fs_+1]))
+
         # find the flux surface center quantities and add them to the flux surface dict
         fs.update(self.fluxsurface_center(psi_fs=psi_fs,R_fs=fs['R'],Z_fs=fs['Z'],psirz=psirz,R=R,Z=Z,incl_extrema=True))
 
@@ -733,8 +736,8 @@ class Equilibrium:
                 #print(psirz0)
 
                 # find the extrema in R of the flux surface at the midplane
-                fs['R_out'] = float(interpolate.interp1d(psirz0[int(len(psirz0)/2):],R[int(len(psirz0)/2):],bounds_error=False)(psi_fs))
-                fs['R_in'] = float(interpolate.interp1d(psirz0[:int(len(psirz0)/2)],R[:int(len(psirz0)/2)],bounds_error=False)(psi_fs))
+                fs['R_out'] = float(interpolate.interp1d(psirz0[np.argmin(psirz0):],R[np.argmin(psirz0):],bounds_error=False)(psi_fs))
+                fs['R_in'] = float(interpolate.interp1d(psirz0[:np.argmin(psirz0)],R[:np.argmin(psirz0)],bounds_error=False)(psi_fs))
 
                 # find the extrema in Z of the flux surface
                 fs['Z_top'] = np.max(Z_fs)
@@ -817,11 +820,6 @@ class Equilibrium:
 
         # compute the average zeta of the flux surface
         fs['zeta'] = 0.5*(zeta_lfs+zeta_hfs)
-
-        fs['Z_sym_bottom'] = Z_bottom
-        fs['R_sym_bottom'] = R_bottom
-        fs['Z_sym_top'] = Z_top
-        fs['R_sym_top'] = R_top
 
         fs['R_miller'] = R_miller
         fs['Z_miller'] = fs['Z0']+fs['kappa']*fs['r']*np.sin(fs['theta']+fs['zeta']*np.sin(2*fs['theta']))
