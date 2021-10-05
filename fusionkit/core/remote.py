@@ -20,7 +20,8 @@ class Remote:
         if self.response == []:
             error = remote.stderr.readlines()
             error = [line.decode("utf-8") for line in error]
-            print("ERROR: {}".format(error), file=sys.stderr)
+            if error != []:
+                print("ERROR: {}".format(error), file=sys.stderr)
         else:
             if verbose:
                 print(''.join(self.response))
