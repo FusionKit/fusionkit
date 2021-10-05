@@ -10,6 +10,18 @@ class TGLF:
         self.metadata = {}
         self.input = {}
         self.output = {}
+        self.species_vector = {
+            'ZS':None,
+            'MASS':None,
+            'RLNS':None,
+            'RLTS':None,
+            'TAUS':None,
+            'AS':None,
+            'VPAR':None,
+            'VPAR_SHEAR':None,
+            'VNS_SHEAR':None,
+            'VTS_SHEAR':None,
+        }
     
     # I/O functions
     def write_inputs(fname=None,path=None,control=None,species=None,gaussian=None,geometry=None,expert=None):
@@ -20,7 +32,7 @@ class TGLF:
         }
         control_params = {
             'name':'Control paramters',
-            'UNITS':'GYRO',
+            'UNITS':'GYRO', #options: GYRO, CGYRO, GENE
             'NS':len(species),
             'USE_TRANSPORT_MODEL':True,
         }
@@ -73,18 +85,6 @@ class TGLF:
                 'WRITE_WAVEFUNCTION_FLAG':1,
             }
         )
-        species_vector = {
-            'ZS':None,
-            'MASS':None,
-            'RLNS':None,
-            'RLTS':None,
-            'TAUS':None,
-            'AS':None,
-            'VPAR':None,
-            'VPAR_SHEAR':None,
-            'VNS_SHEAR':None,
-            'VTS_SHEAR':None,
-        }
         species_params = {
             # values need to be specified as a nested dict of species vectors according to the above species vector format!
             'name':'Species vectors',
@@ -104,7 +104,7 @@ class TGLF:
                 'RMIN_LOC':None,
                 'RMAJ_LOC':None,
                 'ZMAJ_LOC':None,
-                'DRMINDX_LOC':None,
+                'DRMINDX_LOC':1.0,
                 'DRMAJDX_LOC':None,
                 'DZMAJDX_LOC':None,
                 'Q_LOC':None,
