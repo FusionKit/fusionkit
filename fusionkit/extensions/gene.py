@@ -395,3 +395,44 @@ class GENE:
                                         commands=''.join(submit_run_commands),
                                         verbose=verbose)
         return response
+    
+    def read_scan_log(f_path=None,any_sign=False,no_split=False):
+        # setup storage
+        scan_log = {}
+        scan_log['x_var'] = [[]]
+        scan_log['gamma'] = [[]]
+        scan_log['omega'] = [[]]
+
+        # read the scan.log
+        f = open(f_path, 'r')
+        lines = f.readlines()
+        f.close()
+
+        # get the scan variable name from the header line
+        scan_log['x_label'] = lines[0].split()[2]
+
+        # set the amount of sign splits
+        i=0
+
+        # go through the lines and append the values to the scan_log dict, split the scan based on sign changes
+        for j,line in enumerate(lines[1:]):
+            if j>= 1:
+                if any_sign:
+                    if np.sign(float(line.split()[-1])) != np.sign(float(lines[j].split()[-1])):
+                        #print('sign change')
+                        i+=1
+                        scan_log['x_var'].append([])
+                        scan_log['gamma'].append([])
+                        scan_log['omega'].append([])
+                elif no_split:
+                    i=0
+                elif np.sign(float(line.split()[-1])) < 0 and np.sign(float(lines[j].split()[-1])) > 0:
+                    #print('sign change')
+                    i+=1
+                    scan_log['x_var'].append([])
+                    scan_log['gamma'].append([])
+                    scan_log['omega'].append([])
+            scan_log['x_var'][i].append(float(line.split()[2]))
+            scan_log['gamma'][i].append(float(line.split()[-2]))
+            scan_log['omega'][i].append(float(line.split()[-1]))
+        return scan_log
