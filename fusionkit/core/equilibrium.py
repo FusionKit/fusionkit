@@ -256,7 +256,7 @@ class Equilibrium:
         return
 
     ## physics functions
-    def add_derived(self,f_path=None,just_derived=False,incl_fluxsurfaces=False,incl_miller_geo=False):
+    def add_derived(self,f_path=None,just_derived=False,incl_fluxsurfaces=False,resolution=None,incl_miller_geo=False):
         '''
         Function to add quantities derived from the raw Equilibrium.read_geqdsk output, such as phi, rho_pol, rho_tor to the Equilibrium()
 
@@ -368,14 +368,14 @@ class Equilibrium:
         derived['j_tor'] = derived['R']*raw['pprime']+derived['B_tor']
 
         if incl_fluxsurfaces:
-            self.add_fluxsurfaces(raw=raw,derived=derived,fluxsurfaces=fluxsurfaces,incl_miller_geo=incl_miller_geo)
+            self.add_fluxsurfaces(raw=raw,derived=derived,fluxsurfaces=fluxsurfaces,resolution=resolution,incl_miller_geo=incl_miller_geo)
               
         if just_derived:
             return self.raw['derived']
         else:
             return self
 
-    def add_fluxsurfaces(self,raw=None,derived=None,fluxsurfaces=None,incl_miller_geo=False):
+    def add_fluxsurfaces(self,raw=None,derived=None,fluxsurfaces=None,resolution=None,incl_miller_geo=False):
         '''
         Function to add fluxsurfaces to an Equilibrium()
         
@@ -403,14 +403,29 @@ class Equilibrium:
                 derived = self.derived
             if fluxsurfaces is None:
                 fluxsurfaces = self.fluxsurfaces
-            
+
+            if self.raw['nw']<resolution:
+                self.refine(nw=resolution,self_consistent=False)
+                self.add_derived()
+
+            # refine the psi R,Z grid by 4x to get smooth(er) gradients for geometric quantities
+            refine = 4*self.raw['nw']
+            R = np.linspace(self.derived['R'][0],self.derived['R'][-1],refine)
+            Z = np.linspace(self.derived['Z'][0],self.derived['Z'][-1],refine)
+            psirz = interpolate.interp2d(self.derived['R'],self.derived['Z'],self.raw['psirz'])(R,Z)
+
+            # find the approximate location of the magnetic axis on the psirz map
+            i_rmaxis = np.where(psirz == np.min(psirz))[1][0]
+            i_zmaxis = np.where(psirz == np.min(psirz))[0][0]
+
             # add the flux surface data for rho_tor > 0
-            for rho_fs in derived['rho_tor'][1:]:
-                stdout.write('\r {}% completed'.format(round(100*(find(rho_fs,derived['rho_tor'][1:])+1)/len(derived['rho_tor'][1:]))))
+            for rho_fs in self.derived['rho_tor'][1:]:
+                # print a progress %
+                stdout.write('\r {}% completed'.format(round(100*(find(rho_fs,self.derived['rho_tor'][1:])+1)/len(self.derived['rho_tor'][1:]))))
                 stdout.flush()
                 # check that rho stays inside the lcfs
                 if rho_fs < 0.999:
-                    self.fluxsurface_find(x_fs=rho_fs,psirz=raw['psirz'],R=derived['R'],Z=derived['Z'],incl_miller_geo=incl_miller_geo,return_self=True)
+                    self.fluxsurface_find(x_fs=rho_fs,R=R,Z=Z,psirz=psirz,i_maxis=[i_rmaxis,i_zmaxis],incl_miller_geo=True,return_self=True)
             stdout.write('\n')
 
             if 'rbbbs' in raw and 'zbbbs' in raw:
@@ -470,8 +485,9 @@ class Equilibrium:
 
             if incl_miller_geo:
                 # add the symmetrised flux surface trace arrays to derived
-                derived['R_sym'] = fluxsurfaces['R_sym']
-                derived['Z_sym'] = fluxsurfaces['Z_sym']
+                if 'R_sym' and 'Z_sym' in fluxsurfaces:
+                    derived['R_sym'] = fluxsurfaces['R_sym']
+                    derived['Z_sym'] = fluxsurfaces['Z_sym']
 
                 # add the Miller shaping parameters to derived and smooth them using a Savitzky-Golay filter with a window length of 11 and second order polynomial 
                 derived['kappa'] = np.array(fluxsurfaces['kappa'])
@@ -487,7 +503,7 @@ class Equilibrium:
             
             return self
     
-    def fluxsurface_find(self,psi_fs=None,psi=None,x_fs=None,x=None,x_label='rho_tor',psirz=None,R=None,Z=None,incl_miller_geo=False,return_self=False):
+    def fluxsurface_find(self,psi_fs=None,psi=None,x_fs=None,x=None,x_label='rho_tor',R=None,Z=None,psirz=None,i_maxis=None,interp_method='normal',incl_miller_geo=False,return_self=False):
         '''
         #Function to find the R,Z trace of a flux surface 
 
@@ -501,11 +517,13 @@ class Equilibrium:
 
         :param x_label: string of the radial flux label, options (for now) are [default] 'rho_tor', 'rho_pol', 'psi' and 'r'
 
-        :param psirz: array containing the R,Z map of the poloidal flux psi of the magnetic equilibrium
-
         :param R: array vector of R grid mesh
 
         :param Z: array vector of Z grid mesh
+
+        :param psirz: array containing the R,Z map of the poloidal flux psi of the magnetic equilibrium
+
+        :param i_maxis: (optional) list or array containing the indexes of the approximate magnetic axis in psriz to speed up the tracing calculation in a loop
 
         :param incl_miller_geo: boolean to include the symmetrised flux surface Miller shaping parameters delta, kappa and zeta (True) or [default] not (False)
 
@@ -514,9 +532,6 @@ class Equilibrium:
         :return: dict with the flux surface [default] or add the fluxsurface data to Equilibrium.fluxsurfaces
 
         '''
-
-        fs = {}
-
         if x_fs != None:
             if psi_fs == None:
                 if x_label in self.derived  and 'psi' in self.derived:
@@ -524,93 +539,204 @@ class Equilibrium:
                     x = self.derived[x_label]
                     psi = self.derived['psi']
                 else:
-                    raise SyntaxError('Equilibrium.fluxsurface_find error: Did not receive enough inputs to deterlefte psi of the flux surface, check your inputs!')
+                    raise SyntaxError('Equilibrium.fluxsurface_find error: Not enough inputs provided to determine psi of the flux surface, check your inputs!')
                 psi_fs = interpolate.interp1d(x,psi,kind='cubic')(x_fs)
         else:
             raise SyntaxError('Equilibrium.fluxsurface_find error: No radial position of the flux surface was specified, check your inputs!')
-        
-        fs['psi'] = float(psi_fs)
 
-        refine=None
-        # refine the R,Z and psirz grids if the eqdsk resolution is below 512x512
-        if self.raw['nw'] < 512 or self.raw['nh'] < 512:
-            refine = 512
+        # define storage for flux surface coordinates
+        RZ_fs = {'hfs':{'top':[],'bottom':[]},'lfs':{'top':[],'bottom':[]}}
 
-        # refine the psi R,Z grid if refine
-        if refine:
-            R_fine = np.linspace(R[0],R[-1],refine)
-            Z_fine = np.linspace(Z[0],Z[-1],refine)
-            psirz = interpolate.interp2d(R,Z,psirz)(R_fine,Z_fine)
-            R=R_fine
-            Z=Z_fine
+        # take/find the approximate location of the magnetic axis on the psirz map
+        if i_maxis is not None:
+            i_rmaxis = i_maxis[0]
+            i_zmaxis = i_maxis[1]
+        else:
+            i_rmaxis = np.where(psirz == np.min(psirz))[1][0]
+            i_zmaxis = np.where(psirz == np.min(psirz))[0][0]
 
-        # find the approximate magnetic axis in psirz
-        i_rmaxis = np.where(psirz == np.min(psirz))[1][0]
-        zmaxis = Z[np.where(psirz == np.min(psirz))[0][0]]
+        # find the vertical extrema of the LCFS at the major radius of the magnetic axis
+        i_psiz_rmaxis_min = np.argmin(psirz[:,i_rmaxis])
+        i_psiz_rmaxis_bottom_max = np.argmax(psirz[:i_psiz_rmaxis_min,i_rmaxis])
+        i_psiz_rmaxis_top_max = i_psiz_rmaxis_min+np.argmax(psirz[i_psiz_rmaxis_min:,i_rmaxis])
 
-        # find the R values of the flux surface at 'zmaxis' and the corresponding closest indexes in derived['R']
-        psirzmaxis = interpolate.interp2d(R,Z,psirz)(R,zmaxis)
+        psiz_rmaxis_bottom = psirz[i_psiz_rmaxis_bottom_max:i_psiz_rmaxis_min,i_rmaxis]
+        psiz_rmaxis_top = psirz[i_psiz_rmaxis_min:i_psiz_rmaxis_top_max,i_rmaxis]
 
-        R_fs_hfs = interpolate.interp1d(psirzmaxis[:i_rmaxis],R[:i_rmaxis])(psi_fs)
-        i_R_hfs = find(R_fs_hfs,R)
+        Z_lcfs_max = interpolate.interp1d(psiz_rmaxis_top,Z[i_psiz_rmaxis_min:i_psiz_rmaxis_top_max],bounds_error=False,fill_value='extrapolate')(psi[-1])
+        Z_lcfs_min = interpolate.interp1d(psiz_rmaxis_bottom,Z[i_psiz_rmaxis_bottom_max:i_psiz_rmaxis_min],bounds_error=False,fill_value='extrapolate')(psi[-1])
 
-        R_fs_lfs = interpolate.interp1d(psirzmaxis[i_rmaxis:],R[i_rmaxis:])(psi_fs)
-        i_R_lfs = find(R_fs_lfs,R)
+        # set the starting coordinates for the fluxsurface tracing algorithm
+        i, j = i_zmaxis, i_zmaxis
 
-        # setup arrays to store R,Z coordinates of the flux surface
-        R_fs = R[i_R_hfs:i_R_lfs]
-        Z_fs = np.zeros((len(R_fs),2))
+        # find the psi value corresponding to the the current x coordinate
+        psi_fs = interpolate.interp1d(x,psi,kind='cubic')(x_fs)
 
-        # find the top and bottom Z of the flux surface by slicing psirz by R between R_fs_hfs and R_fs_lfs to ensure max(Z_fs) and min(Z_fs) are included
-        for i_R in range(i_R_hfs,i_R_lfs):
-            i = i_R - i_R_hfs
+        # while the psi_fs intersects with the current psirz slice gather the intersection coordinates
+        while (psi_fs > np.min(psirz[i]) and i < psirz.shape[0]-1):
+            top = False
+            
+            if Z[i] <= Z_lcfs_max:
+                # find the minimum in the Z slice of psirz
+                i_psir_slice_min = np.argmin(psirz[i])
 
-            # take a slice of psirz
-            psiZ = np.array(psirz[:,i_R])
+                # chop the psirz and R slices in two parts to separate the HFS and LFS
+                psir_slice_top_hfs = psirz[i,:i_psir_slice_min]
+                psir_slice_top_lfs = psirz[i,i_psir_slice_min:]
 
-            # find the minimum of psi in the slice to split the R,Z plane
-            i_psiZ_min = find(np.min(psiZ),psiZ)
+                # interpolate the R coordinate of the top half HFS and LFS
+                if interp_method == 'normal':
+                    R_fs_top_hfs = float(interpolate.interp1d(psir_slice_top_hfs,R[i_psir_slice_min-len(psir_slice_top_hfs):i_psir_slice_min],bounds_error=False)(psi_fs))
+                    R_fs_top_lfs = float(interpolate.interp1d(psir_slice_top_lfs,R[i_psir_slice_min:i_psir_slice_min+len(psir_slice_top_lfs)],bounds_error=False)(psi_fs))
+                # if the normal method provides spikey flux surface traces, bound the interpolation domain and extrapolate the intersection
+                elif interp_method == 'bounded_extrapolation':
+                    psir_slice_top_hfs = psir_slice_top_hfs[psir_slice_top_hfs<=self.raw['sibry']]
+                    psir_slice_top_lfs = psir_slice_top_lfs[psir_slice_top_lfs<=self.raw['sibry']]
+                    
+                    R_fs_top_hfs = float(interpolate.interp1d(psir_slice_top_hfs,R[i_psir_slice_min-len(psir_slice_top_hfs):i_psir_slice_min][psir_slice_top_hfs<=self.raw['sibry']],bounds_error=False,fill_value='extrapolate')(psi_fs))
+                    R_fs_top_lfs = float(interpolate.interp1d(psir_slice_top_lfs,R[i_psir_slice_min:i_psir_slice_min+len(psir_slice_top_lfs)][psir_slice_top_lfs<=self.raw['sibry']],bounds_error=False,fill_value='extrapolate')(psi_fs))
 
-            # find the maximum of psi in the split slice to ensure not interpolating to a match in psi at a too high/low Z
-            i_psiZ_upper_max = find(np.max(psiZ[i_psiZ_min:]),psiZ[i_psiZ_min:])
-            i_psiZ_lower_max = find(np.max(psiZ[:i_psiZ_min]),psiZ[:i_psiZ_min])
+                # insert the coordinate pairs into the fluxsurface trace dict if not nan (bounds error) and order properly for merging later
+                if not np.isnan(R_fs_top_hfs):
+                    RZ_fs['hfs']['top'].insert(0,(R_fs_top_hfs,Z[i]))
+                if not np.isnan(R_fs_top_lfs):
+                    RZ_fs['lfs']['top'].append((R_fs_top_lfs,Z[i]))
+                
+                top = True
+            
+            # interpolate the Z coordinate of the fluxsurface on the LFS for the top and bottom until crossing the +- 1/4 pi diagonals
+            if top and R[i] < R_fs_top_lfs:
+                # create a lockstepping index for vertical tracing
+                k = (i-i_zmaxis)+i_rmaxis
 
-            # find the upper and lower Z corresponding to the flux surface
-            Z_fs[i,0] = interpolate.interp1d(psiZ[i_psiZ_min:i_psiZ_min+i_psiZ_upper_max],Z[i_psiZ_min:i_psiZ_min+i_psiZ_upper_max],bounds_error=False)(psi_fs)
-            Z_fs[i,1] = interpolate.interp1d(psiZ[i_psiZ_lower_max:i_psiZ_min],Z[i_psiZ_lower_max:i_psiZ_min],bounds_error=False)(psi_fs)
-        
-        # find the top and bottom of the Z gap at the inner and outer sides as a consequence of assuming min(R_fs) and max(R_fs) to be on zmaxis
-        i_Z_upper = find(np.max([Z_fs[np.where(~np.isnan(Z_fs[:,0]))[0][0],0],Z_fs[np.where(~np.isnan(Z_fs[:,0]))[0][-1],0]]),Z)
-        i_Z_lower = find(np.min([Z_fs[np.where(~np.isnan(Z_fs[:,1]))[0][0],1],Z_fs[np.where(~np.isnan(Z_fs[:,1]))[0][-1],1]]),Z)
+                # find the minimum and the extrema of the R slice of psirz
+                i_psiz_slice_min = np.argmin(psirz[:,k])
+                i_psiz_slice_bottom_max = np.argmax(psirz[:i_psiz_slice_min,k])
+                i_psiz_slice_top_max = i_psiz_slice_min+np.argmax(psirz[i_psiz_slice_min:,k])
 
-        # setup arrays to store R,Z coordinates of the missing slices of the flux surface
-        Z_fs_ = Z[i_Z_lower:i_Z_upper]
-        R_fs_ = np.zeros((len(Z_fs_),2))
+                # chop the psirz slices in two parts to separate the top and bottom halves
+                psiz_slice_bottom_lfs = psirz[i_psiz_slice_bottom_max:i_psiz_slice_min,k]
+                psiz_slice_top_lfs = psirz[i_psiz_slice_min:i_psiz_slice_top_max,k]
+                
+                # interpolate the Z coordinate for the LFS top and bottom
+                if interp_method == 'normal':
+                    Z_fs_bottom_lfs = float(interpolate.interp1d(psiz_slice_bottom_lfs,Z[i_psiz_slice_bottom_max:i_psiz_slice_min],bounds_error=False)(psi_fs))
+                    Z_fs_top_lfs = float(interpolate.interp1d(psiz_slice_top_lfs,Z[i_psiz_slice_min:i_psiz_slice_top_max],bounds_error=False)(psi_fs))
+                elif interp_method == 'bounded_extrapolation':
+                    Z_slice_bottom_lfs = Z[i_psiz_slice_bottom_max:i_psiz_slice_min][psiz_slice_bottom_lfs<=self.raw['sibry']]
+                    Z_slice_top_lfs = Z[i_psiz_slice_min:i_psiz_slice_top_max][psiz_slice_top_lfs<=self.raw['sibry']]
+                    psiz_slice_bottom_lfs = psiz_slice_bottom_lfs[psiz_slice_bottom_lfs<=self.raw['sibry']]
+                    psiz_slice_top_lfs = psiz_slice_top_lfs[psiz_slice_top_lfs<=self.raw['sibry']]
 
-        # find the inner and outer R of the flux surface by slicing psirz by Z between Z[i_Z_lower] and Z[i_Z_upper] to ensure min(R_fs) and max(R_fs) are included
-        for i_Z in range(i_Z_lower,i_Z_upper):
-            i = i_Z - i_Z_lower
-            # take a slice of psirz
-            psiR = np.array(psirz[i_Z,:])
+                    Z_fs_bottom_lfs = float(interpolate.interp1d(psiz_slice_bottom_lfs,Z_slice_bottom_lfs,bounds_error=False,fill_value='extrapolate')(psi_fs))
+                    Z_fs_top_lfs = float(interpolate.interp1d(psiz_slice_top_lfs,Z_slice_top_lfs,bounds_error=False,fill_value='extrapolate')(psi_fs))
 
-            # find the minimum of psi in the slice to split the R,Z plane
-            i_psiR_min = find(np.min(psiR),psiR)
+                if not np.isnan(Z_fs_bottom_lfs):
+                    RZ_fs['lfs']['bottom'].append((R[k],Z_fs_bottom_lfs))
+                if not np.isnan(Z_fs_top_lfs):
+                    RZ_fs['lfs']['top'].append((R[k],Z_fs_top_lfs))
 
-            # find the inner and outer R corresponding to the flux surface
-            R_fs_[i,0] = interpolate.interp1d(psiR[:i_psiR_min],R[:i_psiR_min],bounds_error=False)(psi_fs)
-            R_fs_[i,1] = interpolate.interp1d(psiR[i_psiR_min:],R[i_psiR_min:],bounds_error=False)(psi_fs)
+            # update the slice coordinates
+            if i < psirz.shape[0]-1:
+                i+=1
 
-        # find the glue edges
-        i_upper = sorted(find(Z[i_Z_upper],Z_fs[:,0],n=4))
-        i_lower = sorted(find(Z[i_Z_lower],Z_fs[:,1],n=4))
-        i_zmaxis_fs_ = find(zmaxis,Z_fs_)
+        # while the psi_fs intersects with the current psirz slice gather the intersection coordinates
+        while (psi_fs > np.min(psirz[j]) and j > 0):
+            bottom = False
 
-        # merge the upper and lower halves of the flux surface coordinates with the side slices such that the trace starts and ends at the lfs mid-plane
-        fs['R'] = np.hstack((R_fs_[i_zmaxis_fs_:,1],R_fs[i_upper[0]:i_upper[-1]][::-1],R_fs_[:-3,0][::-1],R_fs[i_lower[0]+1:i_lower[-1]],R_fs_[:i_zmaxis_fs_+1,1]))
-        fs['Z'] = np.hstack((Z_fs_[i_zmaxis_fs_:],Z_fs[i_upper[0]:i_upper[-1],0][::-1],Z_fs_[:-3][::-1],Z_fs[i_lower[0]+1:i_lower[-1],1],Z_fs_[:i_zmaxis_fs_+1]))
+            # interpolate the R coordinate of the bottom half of the fluxsurface on both the LFS and HFS
+            if Z[j] >= Z_lcfs_min:
+                j_psir_slice_min = np.argmin(psirz[j])
+
+                psir_slice_bottom_hfs = psirz[j,:j_psir_slice_min]
+                psir_slice_bottom_lfs = psirz[j,j_psir_slice_min:]
+
+                # interpolate the R coordinate of the bottom half HFS and LFS
+                if interp_method == 'normal':
+                    R_fs_bottom_hfs = float(interpolate.interp1d(psir_slice_bottom_hfs,R[j_psir_slice_min-len(psir_slice_bottom_hfs):j_psir_slice_min],bounds_error=False)(psi_fs))
+                    R_fs_bottom_lfs = float(interpolate.interp1d(psir_slice_bottom_lfs,R[j_psir_slice_min:j_psir_slice_min+len(psir_slice_bottom_lfs)],bounds_error=False)(psi_fs))
+                elif interp_method == 'bounded_extrapolation':
+                    psir_slice_bottom_hfs = psir_slice_bottom_hfs[psir_slice_bottom_hfs<=self.raw['sibry']]
+                    psir_slice_bottom_lfs = psir_slice_bottom_lfs[psir_slice_bottom_lfs<=self.raw['sibry']]
+                    R_fs_bottom_hfs = float(interpolate.interp1d(psir_slice_bottom_hfs,R[j_psir_slice_min-len(psir_slice_bottom_hfs):j_psir_slice_min][psir_slice_bottom_hfs<=self.raw['sibry']],bounds_error=False,fill_value='extrapolate')(psi_fs))
+                    R_fs_bottom_lfs = float(interpolate.interp1d(psir_slice_bottom_lfs,R[j_psir_slice_min:j_psir_slice_min+len(psir_slice_bottom_lfs)][psir_slice_bottom_lfs<=self.raw['sibry']],bounds_error=False,fill_value='extrapolate')(psi_fs))
+
+                if not np.isnan(R_fs_bottom_hfs):
+                    RZ_fs['hfs']['bottom'].append((R_fs_bottom_hfs,Z[j]))
+                if not np.isnan(R_fs_bottom_lfs):
+                    RZ_fs['lfs']['bottom'].insert(0,(R_fs_bottom_lfs,Z[j]))
+                
+                bottom = True
+
+            # interpolate the Z coordinate of the fluxsurface on the HFS for the top and bottom until crossing the +- 3/4 pi diagonals
+            if bottom and R[j] > R_fs_bottom_hfs:
+                k = (j-i_zmaxis)+i_rmaxis
+
+                i_psiz_slice_min = np.argmin(psirz[:,k])
+                i_psiz_slice_bottom_max = np.argmax(psirz[:i_psiz_slice_min,k])
+                i_psiz_slice_top_max = i_psiz_slice_min+np.argmax(psirz[i_psiz_slice_min:,k])
+
+                psiz_slice_bottom_hfs = psirz[i_psiz_slice_bottom_max:i_psiz_slice_min,k]
+                psiz_slice_top_hfs = psirz[i_psiz_slice_min:i_psiz_slice_top_max,k]
+                
+                # interpolate the Z coordinate for the HFS top and bottom
+                if interp_method == 'normal':
+                    Z_fs_bottom_hfs = float(interpolate.interp1d(psiz_slice_bottom_hfs,Z[i_psiz_slice_bottom_max:i_psiz_slice_min],bounds_error=False)(psi_fs))
+                    Z_fs_top_hfs = float(interpolate.interp1d(psiz_slice_top_hfs,Z[i_psiz_slice_min:i_psiz_slice_top_max],bounds_error=False)(psi_fs))
+                elif interp_method == 'bounded_extrapolation':
+                    Z_slice_bottom_hfs = Z[i_psiz_slice_bottom_max:i_psiz_slice_min][psiz_slice_bottom_hfs<=self.raw['sibry']]
+                    Z_slice_top_hfs = Z[i_psiz_slice_min:i_psiz_slice_top_max][psiz_slice_top_hfs<=self.raw['sibry']]
+                    psiz_slice_bottom_hfs = psiz_slice_bottom_hfs[psiz_slice_bottom_hfs<=self.raw['sibry']]
+                    psiz_slice_top_hfs = psiz_slice_top_hfs[psiz_slice_top_hfs<=self.raw['sibry']]
+
+                    Z_fs_bottom_hfs = float(interpolate.interp1d(psiz_slice_bottom_hfs,Z_slice_bottom_hfs,bounds_error=False,fill_value='extrapolate')(psi_fs))
+                    Z_fs_top_hfs = float(interpolate.interp1d(psiz_slice_top_hfs,Z_slice_top_hfs,bounds_error=False,fill_value='extrapolate')(psi_fs))
+
+                if not np.isnan(Z_fs_bottom_hfs):
+                    RZ_fs['hfs']['bottom'].append((R[k],Z_fs_bottom_hfs))
+                if not np.isnan(Z_fs_top_hfs):
+                    RZ_fs['hfs']['top'].append((R[k],Z_fs_top_hfs))
+
+            # update the slice coordinates
+            if j > 0:
+                j-=1
+
+        # zip each quadrant as a function of the Z coordinate, then sort, then re-zip as a function of the R coordinate
+        RZ_fs_hfs_top_reverse = [(b, a) for a, b in sorted([(b, a) for a, b in RZ_fs['hfs']['top']])]
+        RZ_fs_hfs_bottom_reverse = [(b, a) for a, b in sorted([(b, a) for a, b in RZ_fs['hfs']['bottom']])]
+        RZ_fs_lfs_top_reverse = [(b, a) for a, b in sorted([(b, a) for a, b in RZ_fs['lfs']['top']])]
+        RZ_fs_lfs_bottom_reverse = [(b, a) for a, b in sorted([(b, a) for a, b in RZ_fs['lfs']['bottom']])]
+
+        # define the merge indexes at the +- 1/4 pi and +- 3/4 pi diagonals
+        i_merge_hfs_top = int(len(RZ_fs['hfs']['top'])/2)
+        i_merge_hfs_bottom = int(len(RZ_fs['hfs']['bottom'])/2)
+        i_merge_lfs_top = int(len(RZ_fs['lfs']['top'])/2)
+        i_merge_lfs_bottom = int(len(RZ_fs['lfs']['bottom'])/2)
+
+        # sort each quadrant half as a function of the R coordinate and the other half as a function of the Z coordinate and then merge them
+        RZ_fs['hfs']['top'] = (RZ_fs_hfs_top_reverse[:i_merge_hfs_top]+sorted(RZ_fs['hfs']['top'])[i_merge_hfs_top:])[::-1]
+        RZ_fs['hfs']['bottom'] = (sorted(RZ_fs['hfs']['bottom'])[i_merge_hfs_bottom:][::-1]+RZ_fs_hfs_bottom_reverse[i_merge_hfs_bottom:])[::-1]
+        RZ_fs['lfs']['top'] = RZ_fs_lfs_top_reverse[:i_merge_lfs_top]+sorted(RZ_fs['lfs']['top'])[:i_merge_lfs_top][::-1]
+        RZ_fs['lfs']['bottom'] = sorted(RZ_fs['lfs']['bottom'])[:i_merge_lfs_bottom]+RZ_fs_lfs_bottom_reverse[i_merge_lfs_bottom:]
+
+        # merge the different quadrants accounting for the direction of tracing for the different parts of each quadrant
+        fs_start = RZ_fs['lfs']['top'][:i_merge_lfs_top]
+        fs_middle_1 = sorted(RZ_fs['lfs']['top'][i_merge_lfs_top:]+RZ_fs['hfs']['top'][:i_merge_hfs_top])[::-1]
+        fs_middle_2 = [(b, a) for a, b in sorted([(b, a) for a, b in RZ_fs['hfs']['top'][i_merge_hfs_top:]]+[(b, a) for a, b in RZ_fs['hfs']['bottom'][:i_merge_hfs_bottom]])][::-1]
+        fs_middle_3 = sorted(RZ_fs['hfs']['bottom'][i_merge_hfs_bottom:]+RZ_fs['lfs']['bottom'][:i_merge_lfs_bottom])
+        fs_end = RZ_fs['lfs']['bottom'][i_merge_lfs_bottom:]
+
+        # merge the complete fluxsurface trace
+        RZ_fs = fs_start + fs_middle_1 +fs_middle_2 + fs_middle_3 + fs_end
+
+        # separate the R and Z coordinates in separate vectors
+        R_fs = np.array([a for a,b in RZ_fs])
+        Z_fs = np.array([b for a,b in RZ_fs])
+
+        fs = {'R':R_fs,'Z':Z_fs,'psi':psi_fs}
 
         # find the flux surface center quantities and add them to the flux surface dict
-        fs.update(self.fluxsurface_center(psi_fs=psi_fs,R_fs=fs['R'],Z_fs=fs['Z'],psirz=psirz,R=R,Z=Z,incl_extrema=True))
+        fs.update(self.fluxsurface_center(psi_fs=psi_fs,R_fs=fs['R'],Z_fs=fs['Z'],R=R,Z=Z,psirz=psirz,incl_extrema=True))
 
         if incl_miller_geo:
             fs = self.fluxsurface_miller_geo(fs=fs)
@@ -740,10 +866,32 @@ class Equilibrium:
                 fs['R_in'] = float(interpolate.interp1d(psirz0[:np.argmin(psirz0)],R[:np.argmin(psirz0)],bounds_error=False)(psi_fs))
 
                 # find the extrema in Z of the flux surface
-                fs['Z_top'] = np.max(Z_fs)
-                fs['R_top'] = R_fs[find(fs['Z_top'],Z_fs)]
-                fs['Z_bottom'] = np.min(Z_fs)
-                fs['R_bottom'] = R_fs[find(fs['Z_bottom'],Z_fs)]
+                # find the approximate fluxsurface top and bottom
+                Z_top = np.max(Z_fs)
+                Z_bottom = np.min(Z_fs)
+
+                x_fs = interpolate.interp1d(self.derived['psi'],self.derived['rho_tor'])(psi_fs)
+
+                # generate filter lists that take a representative slice of the top and bottom of the flux surface coordinates around the approximate Z_top and Z_bottom
+                top_filter = [z > (0.90+0.075*x_fs**2)*Z_top for z in Z_fs]
+                bottom_filter = [z < (0.90+0.075*x_fs**2)*(Z_bottom-Z0_fs) for z in Z_fs-Z0_fs]
+
+                # fit the top and bottom slices of the flux surface, compute the gradient of these fits and interpolate to zero to find R_top, Z_top, R_bottom and Z_bottom
+                R_top_fit = np.linspace(R_fs[top_filter][-1],R_fs[top_filter][0],5000)
+                Z_top_fit = np.poly1d(np.polyfit(R_fs[top_filter][::-1],Z_fs[top_filter][::-1],5))(R_top_fit)
+                Z_top_fit_grad = np.gradient(Z_top_fit,R_top_fit)
+
+                R_top = interpolate.interp1d(Z_top_fit_grad,R_top_fit)(0)
+                Z_top = interpolate.interp1d(R_top_fit,Z_top_fit)(R_top)
+
+                R_bottom_fit = np.linspace(R_fs[bottom_filter][-1],R_fs[bottom_filter][0],5000)
+                Z_bottom_fit = np.poly1d(np.polyfit(R_fs[bottom_filter][::-1],Z_fs[bottom_filter][::-1],5))(R_bottom_fit)
+                Z_bottom_fit_grad = np.gradient(Z_bottom_fit,R_bottom_fit)
+
+                R_bottom = interpolate.interp1d(Z_bottom_fit_grad,R_bottom_fit)(0)
+                Z_bottom = interpolate.interp1d(R_bottom_fit,Z_bottom_fit)(R_bottom)
+
+                fs.update({'R_top':R_top,'Z_top':Z_top,'R_bottom':R_bottom,'Z_bottom':Z_bottom})
             else:
                 raise SyntaxError('Equilibibrium.fluxsurface_extrema error: No average elevation provided for the target flux surface, check your inputs!')
         else:
@@ -762,7 +910,7 @@ class Equilibrium:
             # return the bare flux surface dict
             return fs
     
-    def fluxsurface_miller_geo(self,fs=None,symmetrise=True):
+    def fluxsurface_miller_geo(self,fs=None,symmetrise=False):
         '''
         Function to extract Miller geometry parameters from (symmetrised) flux surface parameterisation [Turnbull PoP 6 1113 (1999)]
 
@@ -781,19 +929,13 @@ class Equilibrium:
         else:
             R_fs = fs['R']
             Z_fs = fs['Z']
-    
-        # find the R,Z coordinates of the top and bottom of the flux surface
-        Z_bottom = np.min(Z_fs)
-        R_bottom = interpolate.interp1d(Z_fs,R_fs)(Z_bottom)
-        Z_top = np.max(Z_fs)
-        R_top = interpolate.interp1d(Z_fs,R_fs)(Z_top)
 
         # compute triangularity (delta) and elongation (kappa) of flux surface
-        delta_top = (fs['R0'] - R_top)/fs['r']
-        delta_bottom = (fs['R0'] - R_bottom)/fs['r']
+        delta_top = (fs['R0'] - fs['R_top'])/fs['r']
+        delta_bottom = (fs['R0'] - fs['R_bottom'])/fs['r']
         fs['delta'] = (delta_top+delta_bottom)/2
         x = np.arcsin(fs['delta'])
-        fs['kappa'] = (Z_top - Z_bottom)/(2*fs['r'])
+        fs['kappa'] = (fs['Z_top'] - fs['Z_bottom'])/(2*fs['r'])
 
         # generate theta grid and interpolate the flux surface trace to the Miller parameterisation
         fs['theta'] = np.linspace(0,2*np.pi,360)
@@ -859,7 +1001,7 @@ class Equilibrium:
         return self.derived[x_label],y_interpolated
     
     def refine(self,nw=None,nbbbs=None,limitr=None,interp_order=9,retain_original=False,self_consistent=True):
-        print('Refining Equilibrium...')
+        print('Refining Equilibrium to {}x{}...'.format(nw,nw))
         if retain_original:
             self.original = copy.deepcopy(self.raw)
 
