@@ -10,12 +10,21 @@ import re
 import numpy as np
 import json,codecs
 import copy
+from pathlib import Path
 from scipy import interpolate, integrate
 from sys import stdout
 
 # fusionkit dependencies
 from .utils import find, number
 from .dataspine import DataSpine
+
+# Common numerical data types, for ease of type-checking
+np_itypes = (np.int8, np.int16, np.int32, np.int64)
+np_utypes = (np.uint8, np.uint16, np.uint32, np.uint64)
+np_ftypes = (np.float16, np.float32, np.float64)
+
+number_types = (float, int, np_itypes, np_utypes, np_ftypes)
+array_types = (list, tuple, np.ndarray)
 
 class Equilibrium:
     '''
@@ -25,6 +34,25 @@ class Equilibrium:
         self.raw = {} # storage for all raw eqdsk data
         self.derived = {} # storage for all data derived from eqdsk data
         self.fluxsurfaces = {} # storage for all data related to flux surfaces
+        # specify the eqdsk file formate, based on 'G EQDSK FORMAT - L Lao 2/7/97'
+        self.eqdsk_format = {
+            0:{'vars':['code','case','idum','nw','nh'],'size':[5]},
+            1:{'vars':['rdim', 'zdim', 'rcentr', 'rleft', 'zmid'],'size':[5]},
+            2:{'vars':['rmaxis', 'zmaxis', 'simag', 'sibry', 'bcentr'],'size':[5]},
+            3:{'vars':['current', 'simag2', 'xdum', 'rmaxis2', 'xdum'],'size':[5]},
+            4:{'vars':['zmaxis2', 'xdum', 'sibry2', 'xdum', 'xdum'],'size':[5]},
+            5:{'vars':['fpol'],'size':['nw']},
+            6:{'vars':['pres'],'size':['nw']},
+            7:{'vars':['ffprim'],'size':['nw']},
+            8:{'vars':['pprime'],'size':['nw']},
+            9:{'vars':['psirz'],'size':['nw','nh']},
+            10:{'vars':['qpsi'],'size':['nw']},
+            11:{'vars':['nbbbs','limitr'],'size':[2]},
+            12:{'vars':['rbbbs','zbbbs'],'size':['nbbbs']},
+            13:{'vars':['rlim','zlim'],'size':['limitr']},
+        }
+        self.sanity_values = ['rmaxis','zmaxis','simag','sibry'] # specify the sanity values used for consistency check of eqdsk file
+        self.max_values = 5 # maximum number of values per line
 
     ## I/O functions
     def read_geqdsk(self,f_path=None,just_raw=False,add_derived=False):
@@ -45,28 +73,6 @@ class Equilibrium:
         if f_path is None or not os.path.isfile(f_path):
             print('Invalid file or path provided!')
             return
-
-        # specify the eqdsk file formate, based on 'G EQDSK FORMAT - L Lao 2/7/97'
-        self.eqdsk_format = {
-            0:{'vars':['code','case','idum','nw','nh'],'size':[5]},
-            1:{'vars':['rdim', 'zdim', 'rcentr', 'rleft', 'zmid'],'size':[5]},
-            2:{'vars':['rmaxis', 'zmaxis', 'simag', 'sibry', 'bcentr'],'size':[5]},
-            3:{'vars':['current', 'simag2', 'xdum', 'rmaxis2', 'xdum'],'size':[5]},
-            4:{'vars':['zmaxis2', 'xdum', 'sibry2', 'xdum', 'xdum'],'size':[5]},
-            5:{'vars':['fpol'],'size':['nw']},
-            6:{'vars':['pres'],'size':['nw']},
-            7:{'vars':['ffprime'],'size':['nw']},
-            8:{'vars':['pprime'],'size':['nw']},
-            9:{'vars':['psirz'],'size':['nw','nh']},
-            10:{'vars':['qpsi'],'size':['nw']},
-            11:{'vars':['nbbbs','limitr'],'size':[2]},
-            12:{'vars':['rbbbs','zbbbs'],'size':['nbbbs']},
-            13:{'vars':['rlim','zlim'],'size':['limitr']},
-        }
-
-        # specify the sanity values used for consistency check of eqdsk file
-        self.sanity_values = ['rmaxis','zmaxis','simag','sibry']
-        self.max_values = 5 # maximum number of values per line
         
         # read the g-file
         with open(f_path,'r') as file:
@@ -142,12 +148,6 @@ class Equilibrium:
             #print(sanity_pair)
             if self.raw[key]!=self.raw[sanity_pair]:
                 raise ValueError('Inconsistent '+key+': %7.4g, %7.4g'%(self.raw[key], self.raw[sanity_pair])+'. CHECK YOUR EQDSK FILE!')
-        
-        if 'rbbbs' in self.raw and 'zbbbs' in self.raw:
-            # ensure the boundary coordinates are stored from midplane lfs to midplane hfs
-            i_split = find(np.max(self.raw['rbbbs']),self.raw['rbbbs'])
-            self.raw['rbbbs'] = np.hstack((self.raw['rbbbs'][i_split:],self.raw['rbbbs'][:i_split]))
-            self.raw['zbbbs'] = np.hstack((self.raw['zbbbs'][i_split:],self.raw['zbbbs'][:i_split]))
 
         if add_derived:
             self.add_derived()
@@ -155,6 +155,118 @@ class Equilibrium:
             return self.raw
         else:
             return self
+    
+    def write_geqdsk(self,f_path=None):
+        '''
+        Function to convert this Equilibrium() object to a eqdsk g-file 
+        :param f_path: string containing the target path of generated eqdsk g-file, including the file name (!)
+        :returns: none
+        '''
+        print('Writing Equilibrium to eqdsk g-file...')
+
+        if self.raw:
+            if not isinstance(f_path, str):
+                raise TypeError("filepath field must be a string. EQDSK file write aborted.")
+
+            maxv = int(self.max_values)
+
+            eqpath = Path(f_path)
+            if eqpath.is_file():
+                print("%s exists, overwriting file with EQDSK file!" % (str(eqpath)))
+            eq = {"xdum": 0.0}
+            for linenum in self.eqdsk_format:
+                if "vars" in self.eqdsk_format[linenum]:
+                    for key in self.eqdsk_format[linenum]["vars"]:
+                        if key in self.raw:
+                            eq[key] = copy.deepcopy(self.raw[key])
+                        elif key in ["nbbbs","limitr","rbbbs","zbbbs","rlim","zlim"]:
+                            eq[key] = None
+                            if key in self.derived:
+                                eq[key] = copy.deepcopy(self.derived[key])
+                        else:
+                            raise TypeError("%s field must be specified. EQDSK file write aborted." % (key))
+            if eq["nbbbs"] is None or eq["rbbbs"] is None or eq["zbbbs"] is None:
+                eq["nbbbs"] = 0
+                eq["rbbbs"] = []
+                eq["zbbbs"] = []
+            if eq["limitr"] is None or eq["rlim"] is None or eq["zlim"] is None:
+                eq["limitr"] = 0
+                eq["rlim"] = []
+                eq["zlim"] = []
+
+            eq["xdum"] = 0.0
+            with open(str(eqpath), 'w') as ff:
+                gcase = ""
+                if "code" in eq and eq["code"]:
+                    gcase = gcase + eq["code"] + " "
+                gcase = gcase + eq["case"][:48 - len(gcase)] if (len(eq["case"]) - len(gcase)) > 48 else gcase + eq["case"]
+                ff.write("%-48s%4d%4d%4d\n" % (gcase, eq["idum"], eq["nw"], eq["nh"]))
+                ff.write("%16.9E%16.9E%16.9E%16.9E%16.9E\n" % (eq["rdim"], eq["zdim"], eq["rcentr"], eq["rleft"], eq["zmid"]))
+                ff.write("%16.9E%16.9E%16.9E%16.9E%16.9E\n" % (eq["rmaxis"], eq["zmaxis"], eq["simag"], eq["sibry"], eq["bcentr"]))
+                ff.write("%16.9E%16.9E%16.9E%16.9E%16.9E\n" % (eq["current"], eq["simag"], eq["xdum"], eq["rmaxis"], eq["xdum"]))
+                ff.write("%16.9E%16.9E%16.9E%16.9E%16.9E\n" % (eq["zmaxis"], eq["xdum"], eq["sibry"], eq["xdum"], eq["xdum"]))
+                for ii in range(0, len(eq["fpol"])):
+                    ff.write("%16.9E" % (eq["fpol"][ii]))
+                    if (ii + 1) % maxv == 0 and (ii + 1) != len(eq["fpol"]):
+                        ff.write("\n")
+                ff.write("\n")
+                for ii in range(0, len(eq["pres"])):
+                    ff.write("%16.9E" % (eq["pres"][ii]))
+                    if (ii + 1) % maxv == 0 and (ii + 1) != len(eq["pres"]):
+                        ff.write("\n")
+                ff.write("\n")
+                for ii in range(0, len(eq["ffprim"])):
+                    ff.write("%16.9E" % (eq["ffprim"][ii]))
+                    if (ii + 1) % maxv == 0 and (ii + 1) != len(eq["ffprim"]):
+                        ff.write("\n")
+                ff.write("\n")
+                for ii in range(0, len(eq["pprime"])):
+                    ff.write("%16.9E" % (eq["pprime"][ii]))
+                    if (ii + 1) % maxv == 0 and (ii + 1) != len(eq["pprime"]):
+                        ff.write("\n")
+                ff.write("\n")
+                kk = 0
+                for ii in range(0, eq["nh"]):
+                    for jj in range(0, eq["nw"]):
+                        ff.write("%16.9E" % (eq["psirz"][ii, jj]))
+                        if (kk + 1) % maxv == 0 and (kk + 1) != (eq["nh"] * eq["nw"]):
+                            ff.write("\n")
+                        kk = kk + 1
+                ff.write("\n")
+                for ii in range(0, len(eq["qpsi"])):
+                    ff.write("%16.9E" % (eq["qpsi"][ii]))
+                    if (ii + 1) % maxv == 0 and (ii + 1) != len(eq["qpsi"]):
+                        ff.write("\n")
+                ff.write("\n")
+                ff.write("%5d%5d\n" % (eq["nbbbs"], eq["limitr"]))
+                kk = 0
+                for ii in range(0, eq["nbbbs"]):
+                    ff.write("%16.9E" % (eq["rbbbs"][ii]))
+                    if (kk + 1) % maxv == 0 and (ii + 1) != eq["nbbbs"]:
+                        ff.write("\n")
+                    kk = kk + 1
+                    ff.write("%16.9E" % (eq["zbbbs"][ii]))
+                    if (kk + 1) % maxv == 0 and (ii + 1) != eq["nbbbs"]:
+                        ff.write("\n")
+                    kk = kk + 1
+                ff.write("\n")
+                kk = 0
+                for ii in range(0, eq["limitr"]):
+                    ff.write("%16.9E" % (eq["rlim"][ii]))
+                    if (kk + 1) % maxv == 0 and (kk + 1) != eq["limitr"]:
+                        ff.write("\n")
+                    kk = kk + 1
+                    ff.write("%16.9E" % (eq["zlim"][ii]))
+                    if (kk + 1) % maxv == 0 and (kk + 1) != eq["limitr"]:
+                        ff.write("\n")
+                    kk = kk + 1
+                ff.write("\n")
+            print('Output EQDSK file saved as %s.' % (str(eqpath)))
+
+        else:
+            print("g-eqdsk could not be written")
+
+        return
     
     def read_json(self,f_path=None):
         '''
@@ -298,17 +410,22 @@ class Equilibrium:
         derived['rho_pol'] = np.sqrt(psi_norm)
 
         if 'rbbbs' in raw and 'zbbbs' in raw:
+            # ensure the boundary coordinates are stored from midplane lfs to midplane hfs
+            i_split = find(np.max(raw['rbbbs']),self.raw['rbbbs'])
+            derived['rbbbs'] = np.hstack((raw['rbbbs'][i_split:],raw['rbbbs'][:i_split]))
+            derived['zbbbs'] = np.hstack((raw['zbbbs'][i_split:],raw['zbbbs'][:i_split]))
+            
             # find the indexes of 'zmaxis' on the high field side (hfs) and low field side (lfs) of the separatrix
-            i_zmaxis_hfs = int(len(raw['zbbbs'])/3)+find(raw['zmaxis'],raw['zbbbs'][int(len(raw['zbbbs'])/3):int(2*len(raw['zbbbs'])/3)])
-            i_zmaxis_lfs = int(2*len(raw['zbbbs'])/3)+find(raw['zmaxis'],raw['zbbbs'][int(2*len(raw['zbbbs'])/3):])
+            i_zmaxis_hfs = int(len(derived['zbbbs'])/3)+find(raw['zmaxis'],derived['zbbbs'][int(len(derived['zbbbs'])/3):int(2*len(derived['zbbbs'])/3)])
+            i_zmaxis_lfs = int(2*len(derived['zbbbs'])/3)+find(raw['zmaxis'],derived['zbbbs'][int(2*len(derived['zbbbs'])/3):])
             
             # find the index of 'zmaxis' in the R,Z grid
             i_zmaxis = find(raw['zmaxis'],derived['Z'])
 
             # find indexes of separatrix on HFS, magnetic axis, separatrix on LFS in R
-            i_R_hfs = find(raw['rbbbs'][i_zmaxis_hfs],derived['R'][:int(len(derived['R'])/2)])
+            i_R_hfs = find(derived['rbbbs'][i_zmaxis_hfs],derived['R'][:int(len(derived['R'])/2)])
             i_rmaxis = find(raw['rmaxis'],derived['R'])
-            i_R_lfs = int(len(derived['R'])/2)+find(raw['rbbbs'][i_zmaxis_lfs],derived['R'][int(len(derived['R'])/2):])
+            i_R_lfs = int(len(derived['R'])/2)+find(derived['rbbbs'][i_zmaxis_lfs],derived['R'][int(len(derived['R'])/2):])
 
             # HFS and LFS R and psirz
             R_hfs = derived['R'][i_R_hfs:i_rmaxis]
@@ -316,14 +433,14 @@ class Equilibrium:
             psirzmaxis_hfs = raw['psirz'][i_zmaxis,i_R_hfs:i_rmaxis]
             psirzmaxis_lfs = raw['psirz'][i_zmaxis,i_rmaxis:i_R_lfs]
 
-            # nonlinear R grid at 'zmaxis' based on equidistant psi grid for 'fpol', 'pres', 'ffprime', 'pprime' and 'qpsi'
+            # nonlinear R grid at 'zmaxis' based on equidistant psi grid for 'fpol', 'pres', 'ffprim', 'pprime' and 'qpsi'
             derived['R_psi_hfs'] = interpolate.interp1d(psirzmaxis_hfs,R_hfs,fill_value='extrapolate')(derived['psi'][::-1])
             derived['R_psi_lfs'] = interpolate.interp1d(psirzmaxis_lfs,R_lfs,fill_value='extrapolate')(derived['psi'])
         
             # find the R,Z values of the x-point, !TODO: should add check for second x-point in case of double-null equilibrium
-            i_xpoint_Z = find(np.min(raw['zbbbs']),raw['zbbbs']) # assuming lower null, JET-ILW shape for now
-            derived['R_x'] = raw['rbbbs'][i_xpoint_Z]
-            derived['Z_x'] = raw['zbbbs'][i_xpoint_Z]
+            i_xpoint_Z = find(np.min(derived['zbbbs']),derived['zbbbs']) # assuming lower null, JET-ILW shape for now
+            derived['R_x'] = derived['rbbbs'][i_xpoint_Z]
+            derived['Z_x'] = derived['zbbbs'][i_xpoint_Z]
 
         # compute LFS phi (toroidal flux in W/rad) grid from integrating q = d psi/d phi
         derived['phi'] = integrate.cumtrapz(raw['qpsi'],derived['psi'],initial=0)
@@ -364,7 +481,7 @@ class Equilibrium:
         derived['rhorz_tor'] = np.sqrt(phirz_norm)
 
         # compute the toroidal magnetic field and current density
-        derived['B_tor'] = raw['ffprime']/derived['R']
+        derived['B_tor'] = raw['ffprim']/derived['R']
         derived['j_tor'] = derived['R']*raw['pprime']+derived['B_tor']
 
         if incl_fluxsurfaces:
@@ -404,6 +521,9 @@ class Equilibrium:
             if fluxsurfaces is None:
                 fluxsurfaces = self.fluxsurfaces
 
+            if resolution is None:
+                if 'nw' in self.raw:
+                    resolution = self.raw['nw']
             if self.raw['nw']<resolution:
                 self.refine(nw=resolution,self_consistent=False)
                 self.add_derived()
@@ -430,10 +550,11 @@ class Equilibrium:
 
             if 'rbbbs' in raw and 'zbbbs' in raw:
                 # find the geometric center, minor radius and extrema of the lcfs manually
-                lcfs = self.fluxsurface_center(psi_fs=raw['sibry'],R_fs=raw['rbbbs'],Z_fs=raw['zbbbs'],psirz=raw['psirz'],R=derived['R'],Z=derived['Z'],incl_extrema=True)
-                lcfs.update({'R':raw['rbbbs'],'Z':raw['zbbbs']})
+                lcfs = self.fluxsurface_center(psi_fs=raw['sibry'],R_fs=derived['rbbbs'],Z_fs=derived['zbbbs'],psirz=raw['psirz'],R=derived['R'],Z=derived['Z'],incl_extrema=True)
+                lcfs.update({'R':derived['rbbbs'],'Z':derived['zbbbs']})
             else:
-                lcfs = self.fluxsurface_find(x_fs=1.0,psi_fs=raw['sibry'],psirz=raw['psirz'],R=derived['R'],Z=derived['Z'],return_self=False)
+                lcfs = self.fluxsurface_find(x_fs=1.0,psi_fs=raw['sibry'],psirz=psirz,R=R,Z=Z,i_maxis=[i_rmaxis,i_zmaxis],interp_method='bounded_extrapolation',return_self=False)
+                derived.update({'rbbbs':lcfs['R'],'zbbbs':lcfs['Z'],'nbbbs':len(lcfs['R'])})
             if incl_miller_geo:
                 lcfs = self.fluxsurface_miller_geo(fs=lcfs)
             
@@ -532,14 +653,15 @@ class Equilibrium:
         :return: dict with the flux surface [default] or add the fluxsurface data to Equilibrium.fluxsurfaces
 
         '''
+        if x_label in self.derived  and 'psi' in self.derived:
+            # find the flux of the selected flux surface
+            x = self.derived[x_label]
+            psi = self.derived['psi']
+        else:
+            raise SyntaxError('Equilibrium.fluxsurface_find error: Not enough inputs provided to determine psi of the flux surface, check your inputs!')
+
         if x_fs != None:
             if psi_fs == None:
-                if x_label in self.derived  and 'psi' in self.derived:
-                    # find the flux of the selected flux surface
-                    x = self.derived[x_label]
-                    psi = self.derived['psi']
-                else:
-                    raise SyntaxError('Equilibrium.fluxsurface_find error: Not enough inputs provided to determine psi of the flux surface, check your inputs!')
                 psi_fs = interpolate.interp1d(x,psi,kind='cubic')(x_fs)
         else:
             raise SyntaxError('Equilibrium.fluxsurface_find error: No radial position of the flux surface was specified, check your inputs!')
