@@ -13,6 +13,7 @@ import copy
 from pathlib import Path
 from scipy import interpolate, integrate
 from sys import stdout
+#import matplotlib.pyplot as plt
 
 # fusionkit dependencies
 from .utils import find, number
@@ -538,6 +539,7 @@ class Equilibrium:
             i_rmaxis = np.where(psirz == np.min(psirz))[1][0]
             i_zmaxis = np.where(psirz == np.min(psirz))[0][0]
 
+            #plt.figure()
             # add the flux surface data for rho_tor > 0
             for rho_fs in self.derived['rho_tor'][1:]:
                 # print a progress %
@@ -557,7 +559,9 @@ class Equilibrium:
                 derived.update({'rbbbs':lcfs['R'],'zbbbs':lcfs['Z'],'nbbbs':len(lcfs['R'])})
             if incl_miller_geo:
                 lcfs = self.fluxsurface_miller_geo(fs=lcfs)
-            
+            #plt.axis('scaled')
+            #plt.show()
+
             # add a zero at the start of all fluxsurface quantities and append the lcfs values to the end of the flux surface data
             for key in fluxsurfaces:
                 if key in ['R','R0']:
@@ -857,6 +861,8 @@ class Equilibrium:
 
         fs = {'R':R_fs,'Z':Z_fs,'psi':psi_fs}
 
+        #plt.plot(fs['R'],fs['Z'],'b-')
+
         # find the flux surface center quantities and add them to the flux surface dict
         fs.update(self.fluxsurface_center(psi_fs=psi_fs,R_fs=fs['R'],Z_fs=fs['Z'],R=R,Z=Z,psirz=psirz,incl_extrema=True))
 
@@ -981,12 +987,27 @@ class Equilibrium:
             if Z0_fs != None:
                 # find the flux as function of the horizontal coordinate at the midplane of the flux surface
                 psirz0 = interpolate.interp2d(R,Z,psirz)(R,Z0_fs)
-                #print(psirz0)
 
                 # find the extrema in R of the flux surface at the midplane
                 fs['R_out'] = float(interpolate.interp1d(psirz0[np.argmin(psirz0):],R[np.argmin(psirz0):],bounds_error=False)(psi_fs))
                 fs['R_in'] = float(interpolate.interp1d(psirz0[:np.argmin(psirz0)],R[:np.argmin(psirz0)],bounds_error=False)(psi_fs))
 
+                # in case psi_fs is out of bounds in these interpolations
+                if np.isnan(fs['R_out']) or np.isinf(fs['R_out']):
+                    # restack R_fs to get continuous trace on outboard side
+                    R_fs_ = np.hstack((R_fs[np.argmin(R_fs):],R_fs[:np.argmin(R_fs)]))
+                    # take the derivative of R_fs
+                    dR_fsdr_ = np.gradient(R_fs_)
+                    # find R_out by interpolating the derivative of R_fs to 0.
+                    dR_fsdr_out =  dR_fsdr_[np.argmax(dR_fsdr_):np.argmin(dR_fsdr_)]
+                    R_fs_out = R_fs_[np.argmax(dR_fsdr_):np.argmin(dR_fsdr_)]
+                    fs['R_out'] = float(interpolate.interp1d(dR_fsdr_out,R_fs_out)(0.))
+                if np.isnan(fs['R_in']) or np.isinf(fs['R_in']):
+                    dR_fsdr = np.gradient(R_fs,edge_order=2)
+                    dR_fsdr_in =  dR_fsdr[np.argmin(dR_fsdr):np.argmax(dR_fsdr)]
+                    R_fs_in = R_fs[np.argmin(dR_fsdr):np.argmax(dR_fsdr)]
+                    fs['R_in'] = float(interpolate.interp1d(dR_fsdr_in,R_fs_in)(0.))
+                
                 # find the extrema in Z of the flux surface
                 # find the approximate fluxsurface top and bottom
                 Z_top = np.max(Z_fs)
@@ -1012,6 +1033,11 @@ class Equilibrium:
 
                 R_bottom = interpolate.interp1d(Z_bottom_fit_grad,R_bottom_fit)(0)
                 Z_bottom = interpolate.interp1d(R_bottom_fit,Z_bottom_fit)(R_bottom)
+
+                #plt.plot(R_fs[top_filter],Z_fs[top_filter],'r.')
+                #plt.plot(R_fs[bottom_filter],Z_fs[bottom_filter],'r.')
+                #plt.plot(R_top_fit,Z_top_fit,'b-')
+                #plt.plot(R_bottom_fit,Z_bottom_fit,'b-')
 
                 fs.update({'R_top':R_top,'Z_top':Z_top,'R_bottom':R_bottom,'Z_bottom':Z_bottom})
             else:
@@ -1088,6 +1114,8 @@ class Equilibrium:
         fs['R_miller'] = R_miller
         fs['Z_miller'] = fs['Z0']+fs['kappa']*fs['r']*np.sin(fs['theta']+fs['zeta']*np.sin(2*fs['theta']))
         
+        #plt.plot(fs['R_miller'],fs['Z_miller'],'g-')
+
         return fs
 
     def update_pressure(self,p=None,additive=False,self_consistent=True):
