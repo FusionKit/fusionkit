@@ -78,7 +78,11 @@ class Plasma:
                 property['x'], property['value'] = self.equilibrium.map_on_equilibrium(x=property['x'],y=property['value'],x_label=property['x_label'])
                 # if property in plasma kinetic profiles, compute normalised logarithmic gradients
                 if property_label in ['n','T']:
-                    property.update({'z':calcz(self.equilibrium.derived['r'],property['value'])})
+                    if 'gradient_label' in property:
+                        gradient_label = property['gradient_label']
+                    else:
+                        gradient_label = 'r'
+                    property.update({'z':calcz(self.equilibrium.derived[gradient_label],property['value'])})
         
         # update the species derived quantities p, beta and alpha in the Equilibrium
         self.update_species_derived()
@@ -143,7 +147,11 @@ class Plasma:
             self.species[i_target]['n']['value'] /= self.species[i_target]['charge']['value']
             # update the normalised logarithmic gradient self-consistently
             if not gradient:
-                self.species[i_target]['n']['z'] = calcz(self.equilibrium.derived['r'],self.species[i_target]['n']['value'])
+                if 'gradient_label' in self.species[i_target]['n']:
+                    gradient_label = self.species[i_target]['n']['gradient_label']
+                else:
+                    gradient_label = 'r'
+                self.species[i_target]['n']['z'] = calcz(self.equilibrium.derived[gradient_label],self.species[i_target]['n']['value'])
         # compute the normalised logarithmic gradients to achieve (numerical) quasi-neutrality
         if gradient:
             # start with the electron density normalised gradient
