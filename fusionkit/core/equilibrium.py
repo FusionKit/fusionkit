@@ -1,8 +1,10 @@
-'''
+"""
+Module to handle any and all methods related to magnetic equilibrium data
+
 The Equilibrium class can read magnetic equilibria files (only edsk g-files for now),
 add derived quantities (e.g. phi, rho_tor, rho_pol, etc.) to the Equilibrium, trace flux surfaces
 and derive shaping parameters (for now only Miller parameters) from the flux surfaces.
-'''
+"""
 
 # general imports
 import os
@@ -28,9 +30,9 @@ number_types = (float, int, np_itypes, np_utypes, np_ftypes)
 array_types = (list, tuple, np.ndarray)
 
 class Equilibrium:
-    '''
-    Class to handle any and all data related to the magnetic equilibrium in a magnetic confinement fusion device
-    '''
+    """
+    Class to handle any and all data related to the magnetic equilibrium in a magnetic confinement fusion device.
+    """
     def __init__(self):
         self.raw = {} # storage for all raw eqdsk data
         self.derived = {} # storage for all data derived from eqdsk data
@@ -57,22 +59,24 @@ class Equilibrium:
 
     ## I/O functions
     def read_geqdsk(self,f_path=None,just_raw=False,add_derived=False):
-        '''
-        Function to convert an eqdsk g-file from file to Equilibrium() object
+        """Read an eqdsk g-file from file into `Equilibrium` object
 
-        :param f_path: string containing the path to the eqdsk g-file, including the file name (!)
+        Args:
+            `f_path` (str): the path to the eqdsk g-file, including the file name (!).
+            `just_raw` (bool): [True] return only the raw dictionary, or [False, default] return the `Equilibrium` object.
+            `add_derived` (bool): [True] also add derived quantities (e.g. phi, rho_tor) to the `Equilibrium` object upon reading the g-file, or [False, default] not.
 
-        :param just_raw: boolean to return only the raw dictionary (True) or [default] return the Equilibrium() object (False)
-
-        :param add_derived: boolean to directly add derived quantities (e.g. phi, rho_tor) to the Equilibrium() object upon reading the g-file
-
-        :return: self or dict if just_raw
-        '''
-        print('Reading edsk g-file to Equilibrium...')
+        Returns:
+            [default] self, or dict if `just_raw`
+        
+        Raises:
+            ValueError: Raise an exception when no `f_path` is provided
+        """
+        print('Reading eqdsk g-file to Equilibrium...')
 
         # check if eqdsk file path is provided and if it exists
         if f_path is None or not os.path.isfile(f_path):
-            print('Invalid file or path provided!')
+            raise ValueError('Invalid file or path provided!')
             return
         
         # read the g-file
@@ -158,11 +162,14 @@ class Equilibrium:
             return self
     
     def write_geqdsk(self,f_path=None):
-        '''
-        Function to convert this Equilibrium() object to a eqdsk g-file 
-        :param f_path: string containing the target path of generated eqdsk g-file, including the file name (!)
-        :returns: none
-        '''
+        """ Write an `Equilibrium` object to an eqdsk g-file 
+
+        Args:
+            f_path (str): the target path of generated eqdsk g-file, including the file name (!).
+        
+        Returns:
+            
+        """
         print('Writing Equilibrium to eqdsk g-file...')
 
         if self.raw:
@@ -270,13 +277,14 @@ class Equilibrium:
         return
     
     def read_json(self,f_path=None):
-        '''
-        Function to read an Equilibrium object stored on disk in json into a callable Equilibrium object
+        """Read an `Equilibrium` object stored on disk in JSON into a callable `Equilibrium` object
 
-        :param f_path: string path to the location the desired file, including the desired file name (!)
+        Args:
+            `f_path` (str): path to the location of the desired file, including the file name (!).
 
-        :return: Equilibrium object containing the data from the json
-        '''
+        Returns:
+            `Equilibrium` object containing the data from the specified JSON file.
+        """
         print("Reading Equilibrium {}".format(f_path))
         with open(f_path,'r') as file:
             equilibrium_json = json.load(file)
@@ -311,18 +319,17 @@ class Equilibrium:
 
         return self
 
-    def write_json(self,f_path='./',f_name='Equilibrium.json',metadata=None):
-        '''
-        Function to write the Equilibrium object to a json file on disk
+    def write_json(self,path='./',f_name='Equilibrium.json',metadata=None):
+        """Write an `Equilibrium` object to a JSON file on disk
 
-        :param f_path: string path to the location the desired file, [default] the current folder '.'  (optional) 
+        Args:
+            `path` (str, optional): path to the desired location to store the JSON output, [default] the current folder.
+            `f_name` (str, optional): the desired file name including the .json extension (!), [default] 'Equilibrium.json'.
+            `metadata` (dict, optional): metadata relevant to the `Equilibrium` for later reference.
 
-        :param f_name: string of the desired file name including the .json extension (!), [default] 'Equilibrium.json' (optional)
-
-        :param metadata: dict contain relevant metadata for the Equilibrium file 
-
-        :return: 
-        '''
+        Returns:
+            
+        """
 
         if metadata is not None and 'author' in metadata:
             author = metadata['author']
@@ -362,29 +369,30 @@ class Equilibrium:
                         if isinstance(equilbrium['fluxsurfaces'][key][fs],np.ndarray):
                             equilbrium['fluxsurfaces'][key][fs] = equilbrium['fluxsurfaces'][key][fs].tolist()
 
-        json.dump(equilbrium, codecs.open(f_path+f_name, 'w', encoding='utf-8'), separators=(',', ':'), indent=4)
+        json.dump(equilbrium, codecs.open(path+f_name, 'w', encoding='utf-8'), separators=(',', ':'), indent=4)
 
-        print('Generated fusionkit.Equilibrium file at: {}'.format(f_path+f_name))
+        print('Generated fusionkit.Equilibrium file at: {}'.format(path+f_name))
 
         return
 
     ## physics functions
-    def add_derived(self,f_path=None,just_derived=False,incl_fluxsurfaces=False,resolution=None,incl_miller_geo=False):
-        '''
-        Function to add quantities derived from the raw Equilibrium.read_geqdsk output, such as phi, rho_pol, rho_tor to the Equilibrium()
+    def add_derived(self,f_path=None,resolution=None,just_derived=False,incl_fluxsurfaces=False,incl_miller_geo=False):
+        """Add quantities derived from the raw `Equilibrium.read_geqdsk()` output, such as phi, rho_pol, rho_tor to the `Equilibrium` object.
+        Can also be called directly if `f_path` is defined.
 
-        Can also be called standalone if f_path is defined
+        Args:
+            `f_path` (str): path to the eqdsk g-file, including the file name (!)
+            `resolution` (int): the number of desired `Equilibrium` grid points, if the native resolution is lower than this value, it is refined using the `refine()` method
+            `just_derived` (bool): [True] return only the derived quantities dictionary, or [False, default] return the `Equilibrium` object
+            `incl_fluxsurfaces` (bool): include fluxsurface tracing output in the added derived quantities
+            `incl_miller_geo` (bool): include the symmetrised fluxsurface Miller shaping parameters. Defaults to False.
 
-        :param f_path: string containing the path to the eqdsk g-file, including the file name (!)
+        Returns:
+            self or dict if just_derived
 
-        :param just_derived: boolean to return only the derived quantities dictionary (True) or [default] return the Equilibrium() object (False)
-
-        :param incl_fluxsurfaces: boolean to also return 
-
-        :param incl_miller_geo: boolean to include the symmetrised flux surface Miller shaping parameters delta, kappa and zeta (True) or [default] not (False)
-
-        :return: self or dict if just_derived
-        '''
+        Raises:
+            ValueError: Raises an exception when `Equilibrium.raw` is empty and no `f_path` is provided
+        """
 
         print('Adding derived quantities to Equilibrium...')
 
@@ -392,7 +400,7 @@ class Equilibrium:
             try:
                 self.raw= self.read_eqdsk(f_path=f_path,just_data=True)
             except:
-                print('Unable to read provided EQDSK file, check file and/or path')
+                raise ValueError('Unable to read provided EQDSK file, check file and/or path')
 
         # introduce shorthands for data and derived locations for increased readability
         raw = self.raw
@@ -459,7 +467,7 @@ class Equilibrium:
         derived['rhorz_pol'] = np.sqrt(psirz_norm)
 
         derived['phirz'] = interpolate.interp1d(derived['psi'],derived['phi'],kind=5,bounds_error=False)(raw['psirz'])
-        '''
+        """
         # repair nan values in phirz, first find the indexes of the nan values
         ij_nan = np.argwhere(np.isnan(derived['phirz']))
         print(ij_nan)
@@ -476,7 +484,7 @@ class Equilibrium:
                 j_nan_plus = j_nan-1
             # cycle through the nan values and compute a weighted sum of the last and earliest non-nan values
             derived['phirz'][i_nan,j_nan] = 0.5*(derived['phirz'][i_nan,j_nan_min]+derived['phirz'][i_nan,j_nan_plus]) 
-        '''
+        """
 
         phirz_norm = abs(derived['phirz'])/(derived['phi'][-1])
         derived['rhorz_tor'] = np.sqrt(phirz_norm)
@@ -494,25 +502,23 @@ class Equilibrium:
             return self
 
     def add_fluxsurfaces(self,raw=None,derived=None,fluxsurfaces=None,resolution=None,incl_miller_geo=False):
-        '''
-        Function to add fluxsurfaces to an Equilibrium()
+        """Add flux surfaces to an `Equilibrium`.
         
-        :param raw: dict containing the raw Equilibrium data, [default] if None is set to self.raw
+        Args:
+            `raw` (dict, optional):  the raw `Equilibrium` data, [default] self.raw if None is set.
+            `derived` (dict, optional): the derived `Equilibrium` quantities, [default] self.derived if None is set.
+            `fluxsurfaces` (dict, optional): the `Equilibrium` flux surface data, each key a variable containing an array, [default] self.fluxsurfaces if None is set.
+            `incl_miller_geo` (bool, optional): [True] include the flux surface Miller shaping parameters delta, kappa and zeta, or [False, default] not.
 
-        :param derived: dict containing the derived Equilibrium quantities, [default] if None is set to self.derived
-
-        :param fluxsurfaces: dict to store the Equilibrium flux surface data, [default] if None is set to self.fluxsurfaces
-
-        :param incl_miller_geo: boolean to include the symmetrised flux surface Miller shaping parameters delta, kappa and zeta (True) or [default] not (False)
-
-        :return: self
-        '''
+        Returns:
+            self.
+        """
         print('Adding fluxsurfaces to Equilibrium...')
 
-        # check if self.fluxsurfaces contains all the fluxsurfaces specified by derived['rho_tor'] already
+        # check if self.fluxsurfaces contains all the flux surfaces specified by derived['rho_tor'] already
         if self.fluxsurfaces and self.derived and len(self.fluxsurfaces['rho_tor']) == len(self.derived['rho_tor']):
             # skip
-            print('Skipped adding fluxsurfaces to Equilibrium as it already contains fluxsurfaces')
+            print('Skipped adding flux surfaces to Equilibrium as it already contains fluxsurfaces')
         else:
             # set the default locations if None is specified
             if raw is None:
@@ -562,7 +568,7 @@ class Equilibrium:
             #plt.axis('scaled')
             #plt.show()
 
-            # add a zero at the start of all fluxsurface quantities and append the lcfs values to the end of the flux surface data
+            # add a zero at the start of all flux surface quantities and append the lcfs values to the end of the flux surface data
             for key in fluxsurfaces:
                 if key in ['R','R0']:
                     fluxsurfaces[key].insert(0,raw['rmaxis'])
@@ -629,34 +635,25 @@ class Equilibrium:
             return self
     
     def fluxsurface_find(self,psi_fs=None,psi=None,x_fs=None,x=None,x_label='rho_tor',R=None,Z=None,psirz=None,i_maxis=None,interp_method='normal',incl_miller_geo=False,return_self=False):
-        '''
-        #Function to find the R,Z trace of a flux surface 
+        """Find the R,Z trace of a flux surface.
 
-        :param psi_fs: (optional) float of the poloidal flux value of the flux surface
+        Args:
+            `psi_fs` (float, optional): the poloidal flux value of the flux surface.
+            `psi` (array, optional): vector containing the poloidal flux psi from axis to separatrix.
+            `x_fs` (float): the radial flux label of the flux surface, [default] assumed to be in rho_tor.
+            `x` (array, optional): vector of the radial flux surface label on the same grid as psi, [default] assumed to be rho_tor.
+            `x_label` (str, optional): the radial flux label, options: [default] 'rho_tor', 'rho_pol', 'psi' and 'r'.
+            `R` (array): vector of R grid.
+            `Z` (array): vector of Z grid.
+            `psirz` (array): a R,Z map of the poloidal flux psi of the magnetic equilibrium.
+            `i_maxis` (list or array, optional): the indexes of the approximate magnetic axis in psriz to speed up the tracing calculation in a loop.
+            `incl_miller_geo` (bool, optional): [True] to include the symmetrised flux surface Miller shaping parameters delta, kappa and zeta, or [False default] not.
+            `return_self` (bool, optional): [True] to return the result to the `Equilibrium` object, or [False, default] as a standalone dictionary.
 
-        :param psi: (optional) array vector containing the poloidal flux psi from axis to separatrix
+        Returns:
+            [default] self, or if `return_self` a dict containing the R, Z and psi values of the flux surface trace.
 
-        :param x_fs: float of the radial flux label of the flux surface, by default assumed to be in rho_tor
-
-        :param x: (optional) array vector of the radial flux surface label on the same grid as psi, by default assume to be rho_tor
-
-        :param x_label: string of the radial flux label, options (for now) are [default] 'rho_tor', 'rho_pol', 'psi' and 'r'
-
-        :param R: array vector of R grid mesh
-
-        :param Z: array vector of Z grid mesh
-
-        :param psirz: array containing the R,Z map of the poloidal flux psi of the magnetic equilibrium
-
-        :param i_maxis: (optional) list or array containing the indexes of the approximate magnetic axis in psriz to speed up the tracing calculation in a loop
-
-        :param incl_miller_geo: boolean to include the symmetrised flux surface Miller shaping parameters delta, kappa and zeta (True) or [default] not (False)
-
-        :param return_self: boolean to return the result to the Equilibrium() object (True) or [default] as a standalone dictionary (False)
-
-        :return: dict with the flux surface [default] or add the fluxsurface data to Equilibrium.fluxsurfaces
-
-        '''
+        """
         if x_label in self.derived  and 'psi' in self.derived:
             # find the flux of the selected flux surface
             x = self.derived[x_label]
@@ -692,7 +689,7 @@ class Equilibrium:
         Z_lcfs_max = interpolate.interp1d(psiz_rmaxis_top,Z[i_psiz_rmaxis_min:i_psiz_rmaxis_top_max],bounds_error=False,fill_value='extrapolate')(psi[-1])
         Z_lcfs_min = interpolate.interp1d(psiz_rmaxis_bottom,Z[i_psiz_rmaxis_bottom_max:i_psiz_rmaxis_min],bounds_error=False,fill_value='extrapolate')(psi[-1])
 
-        # set the starting coordinates for the fluxsurface tracing algorithm
+        # set the starting coordinates for the flux surface tracing algorithm
         i, j = i_zmaxis, i_zmaxis
 
         # find the psi value corresponding to the the current x coordinate
@@ -722,7 +719,7 @@ class Equilibrium:
                     R_fs_top_hfs = float(interpolate.interp1d(psir_slice_top_hfs,R[i_psir_slice_min-len(psir_slice_top_hfs):i_psir_slice_min][psir_slice_top_hfs<=self.raw['sibry']],bounds_error=False,fill_value='extrapolate')(psi_fs))
                     R_fs_top_lfs = float(interpolate.interp1d(psir_slice_top_lfs,R[i_psir_slice_min:i_psir_slice_min+len(psir_slice_top_lfs)][psir_slice_top_lfs<=self.raw['sibry']],bounds_error=False,fill_value='extrapolate')(psi_fs))
 
-                # insert the coordinate pairs into the fluxsurface trace dict if not nan (bounds error) and order properly for merging later
+                # insert the coordinate pairs into the flux surface trace dict if not nan (bounds error) and order properly for merging later
                 if not np.isnan(R_fs_top_hfs):
                     RZ_fs['hfs']['top'].insert(0,(R_fs_top_hfs,Z[i]))
                 if not np.isnan(R_fs_top_lfs):
@@ -730,7 +727,7 @@ class Equilibrium:
                 
                 top = True
             
-            # interpolate the Z coordinate of the fluxsurface on the LFS for the top and bottom until crossing the +- 1/4 pi diagonals
+            # interpolate the Z coordinate of the flux surface on the LFS for the top and bottom until crossing the +- 1/4 pi diagonals
             if top and R[i] < R_fs_top_lfs:
                 # create a lockstepping index for vertical tracing
                 k = (i-i_zmaxis)+i_rmaxis
@@ -770,7 +767,7 @@ class Equilibrium:
         while (psi_fs > np.min(psirz[j]) and j > 0):
             bottom = False
 
-            # interpolate the R coordinate of the bottom half of the fluxsurface on both the LFS and HFS
+            # interpolate the R coordinate of the bottom half of the flux surface on both the LFS and HFS
             if Z[j] >= Z_lcfs_min:
                 j_psir_slice_min = np.argmin(psirz[j])
 
@@ -794,7 +791,7 @@ class Equilibrium:
                 
                 bottom = True
 
-            # interpolate the Z coordinate of the fluxsurface on the HFS for the top and bottom until crossing the +- 3/4 pi diagonals
+            # interpolate the Z coordinate of the flux surface on the HFS for the top and bottom until crossing the +- 3/4 pi diagonals
             if bottom and R[j] > R_fs_bottom_hfs:
                 k = (j-i_zmaxis)+i_rmaxis
 
@@ -852,7 +849,7 @@ class Equilibrium:
         fs_middle_3 = sorted(RZ_fs['hfs']['bottom'][i_merge_hfs_bottom:]+RZ_fs['lfs']['bottom'][:i_merge_lfs_bottom])
         fs_end = RZ_fs['lfs']['bottom'][i_merge_lfs_bottom:]
 
-        # merge the complete fluxsurface trace
+        # merge the complete flux surface trace
         RZ_fs = fs_start + fs_middle_1 +fs_middle_2 + fs_middle_3 + fs_end
 
         # separate the R and Z coordinates in separate vectors
@@ -901,27 +898,21 @@ class Equilibrium:
             return fs
 
     def fluxsurface_center(self,psi_fs=None,R_fs=None,Z_fs=None,psirz=None,R=None,Z=None,incl_extrema=False,return_self=False):
-        '''
-        Function to find the geometric center of a flux surface trace defined by R_fs,Z_fs and psi_fs
+        """Find the geometric center of a flux surface trace defined by R_fs,Z_fs and psi_fs.
 
-        :param psi_fs: float of the poloidal flux value of the flux surface
+        Args:
+            `psi_fs` (float): the poloidal flux value of the flux surface.
+            `R_fs` (array): vector of the horizontal coordinates of the flux surface trace.
+            `Z_fs` (array): vector of the vertical coordinates of the flux surface trace.
+            `psirz` (array): the R,Z map of the poloidal flux psi of the magnetic equilibrium.
+            `R` (array): vector of R grid.
+            `Z` (array): vector of Z grid.
+            `incl_extrema` (bool): [True] include the extrema data in the returned dict, or [False, default] to leave it separate.
+            `return_self` (bool): [True] to return the result to the `Equilibrium`, or [False, default] as a standalone dictionary.
 
-        :param R_fs: array containing the horizontal coordinates of the flux surface trace
-
-        :param Z_fs: array containing the vertical coordinates of the flux surface trace
-
-        :param psirz: array containing the R,Z map of the poloidal flux psi of the magnetic equilibrium
-
-        :param R: array vector of R grid mesh
-
-        :param Z: array vector of Z grid mesh
-
-        :param incl_extrema: boolean to include the extrema data in the returned dict (True) or [default] to leave it separate (False)
-
-        :param return_self: boolean to return the result to the Equilibrium() object (True) or [default] as a standalone dictionary (False)
-
-        :return: dict with the flux surface [default] or add the fluxsurface data to Equilibrium.fluxsurfaces
-        '''
+        Returns:
+            [default] A dict with the flux surface R, Z, psi, r, R0, Z0 and (optional) extrema, or if `return_self` add the flux surface data to Equilibrium.fluxsurfaces
+        """
 
         # create temporary flux surface storage dict
         fs = {}
@@ -955,28 +946,19 @@ class Equilibrium:
             # return the bare flux surface dict
             return fs
 
-    def fluxsurface_extrema(self,psi_fs=None,R_fs=None,Z_fs=None,Z0_fs=None,psirz=None,R=None,Z=None,return_self=False):
-        '''
-        Function to find the extrema in R and Z of a flux surface trace defined by R_fs,Z_fs and psi_fs
+    def fluxsurface_extrema(self,psi_fs=None,R_fs=None,Z_fs=None,Z0_fs=None,return_self=False):
+        """Find the extrema in R and Z of a flux surface trace defined by R_fs, Z_fs and psi_fs.
 
-        :param psi_fs: float of the poloidal flux value of the flux surface
+        Args:
+            `psi_fs` (float): the poloidal flux value of the flux surface.
+            `R_fs` (array): vector of the horizontal coordinates of the flux surface trace.
+            `Z_fs` (array): vector of the vertical coordinates of the flux surface trace.
+            `Z0_fs` (float): the average elevation of the flux surface.
+            `return_self` (bool, optional): [True] boolean to return the result to the Equilibrium object, or [False, default] as a standalone dict.
 
-        :param R_fs: array containing the horizontal coordinates of the flux surface trace
-
-        :param Z_fs: array containing the vertical coordinates of the flux surface trace
-
-        :param Z0_fs: float of the average elevation of the flux surface
-
-        :param psirz: array containing the R,Z map of the poloidal flux psi of the magnetic equilibrium
-
-        :param R: array vector of R grid mesh
-
-        :param Z: array vector of Z grid mesh
-
-        :param return_self: boolean to return the result to the Equilibrium object (True) or [default] as a standalone dict (False)
-
-        :return: dict with the flux surface [default] or append the fluxsurface data to Equilibrium.fluxsurfaces
-        '''
+        Returns:
+            [default] dict with the flux surface, or if `return_self` append the flux surface data to Equilibrium.fluxsurfaces
+        """
 
         # create temporary flux surface storage dict
         fs = {}
@@ -985,28 +967,16 @@ class Equilibrium:
         if psi_fs != None:
             # check if the midplane of the flux surface is provided
             if Z0_fs != None:
-                # find the flux as function of the horizontal coordinate at the midplane of the flux surface
-                psirz0 = interpolate.interp2d(R,Z,psirz)(R,Z0_fs)
+                # restack R_fs and Z_fs to get a continuous midplane outboard trace
+                R_fs_out = np.hstack((R_fs[int(0.9*len(Z_fs)):],R_fs[:int(0.1*len(Z_fs))]))
+                Z_fs_out = np.hstack((Z_fs[int(0.9*len(Z_fs)):],Z_fs[:int(0.1*len(Z_fs))]))
 
+                R_fs_in = R_fs[int(len(Z_fs)/2)-int(0.1*len(Z_fs)):int(len(Z_fs)/2)+int(0.1*len(Z_fs))]
+                Z_fs_in = Z_fs[int(len(Z_fs)/2)-int(0.1*len(Z_fs)):int(len(Z_fs)/2)+int(0.1*len(Z_fs))]
+                
                 # find the extrema in R of the flux surface at the midplane
-                fs['R_out'] = float(interpolate.interp1d(psirz0[np.argmin(psirz0):],R[np.argmin(psirz0):],bounds_error=False)(psi_fs))
-                fs['R_in'] = float(interpolate.interp1d(psirz0[:np.argmin(psirz0)],R[:np.argmin(psirz0)],bounds_error=False)(psi_fs))
-
-                # in case psi_fs is out of bounds in these interpolations
-                if np.isnan(fs['R_out']) or np.isinf(fs['R_out']):
-                    # restack R_fs to get continuous trace on outboard side
-                    R_fs_ = np.hstack((R_fs[np.argmin(R_fs):],R_fs[:np.argmin(R_fs)]))
-                    # take the derivative of R_fs
-                    dR_fsdr_ = np.gradient(R_fs_)
-                    # find R_out by interpolating the derivative of R_fs to 0.
-                    dR_fsdr_out =  dR_fsdr_[np.argmax(dR_fsdr_):np.argmin(dR_fsdr_)]
-                    R_fs_out = R_fs_[np.argmax(dR_fsdr_):np.argmin(dR_fsdr_)]
-                    fs['R_out'] = float(interpolate.interp1d(dR_fsdr_out,R_fs_out)(0.))
-                if np.isnan(fs['R_in']) or np.isinf(fs['R_in']):
-                    dR_fsdr = np.gradient(R_fs,edge_order=2)
-                    dR_fsdr_in =  dR_fsdr[np.argmin(dR_fsdr):np.argmax(dR_fsdr)]
-                    R_fs_in = R_fs[np.argmin(dR_fsdr):np.argmax(dR_fsdr)]
-                    fs['R_in'] = float(interpolate.interp1d(dR_fsdr_in,R_fs_in)(0.))
+                fs['R_out'] = interpolate.interp1d(Z_fs_out,R_fs_out)(Z0_fs)
+                fs['R_in'] = interpolate.interp1d(Z_fs_in,R_fs_in)(Z0_fs)
                 
                 # find the extrema in Z of the flux surface
                 # find the approximate fluxsurface top and bottom
@@ -1034,6 +1004,7 @@ class Equilibrium:
                 R_bottom = interpolate.interp1d(Z_bottom_fit_grad,R_bottom_fit)(0)
                 Z_bottom = interpolate.interp1d(R_bottom_fit,Z_bottom_fit)(R_bottom)
 
+                # diagnostic plots
                 #plt.plot(R_fs[top_filter],Z_fs[top_filter],'r.')
                 #plt.plot(R_fs[bottom_filter],Z_fs[bottom_filter],'r.')
                 #plt.plot(R_top_fit,Z_top_fit,'b-')
@@ -1059,15 +1030,15 @@ class Equilibrium:
             return fs
     
     def fluxsurface_miller_geo(self,fs=None,symmetrise=False):
-        '''
-        Function to extract Miller geometry parameters from (symmetrised) flux surface parameterisation [Turnbull PoP 6 1113 (1999)]
+        """Extract Miller geometry parameters [Turnbull PoP 6 1113 (1999)] from a (symmetrised) flux surface trace.
 
-        :param fs: dict of flux surface data containing R, Z, R0, Z0, r, Z_top, Z_bottom, R_out, R_in
+        Args:
+            `fs` (dict): flux surface data containing R, Z, R0, Z0, r, R_in, R_out, Z_top and Z_bottom.
+            `symmetrise` (bool, optional): [True] symmetrise the provided flux surface trace, or [False, default] not.
 
-        :param symmetrise: boolean to set whether to [default] symmetrise the provided flux surface trace (True) or not (False)
-
-        :return: returns an updated 
-        '''
+        Returns:
+            dict: the fs dict supplied to the method with the Miller parameters appended.
+        """
 
         if symmetrise:
             fs['R_sym'] = (fs['R']+fs['R'][::-1])/2
@@ -1079,9 +1050,9 @@ class Equilibrium:
             Z_fs = fs['Z']
 
         # compute triangularity (delta) and elongation (kappa) of flux surface
-        delta_top = (fs['R0'] - fs['R_top'])/fs['r']
-        delta_bottom = (fs['R0'] - fs['R_bottom'])/fs['r']
-        fs['delta'] = (delta_top+delta_bottom)/2
+        fs['delta_top'] = (fs['R0'] - fs['R_top'])/fs['r']
+        fs['delta_bottom'] = (fs['R0'] - fs['R_bottom'])/fs['r']
+        fs['delta'] = (fs['delta_top']+fs['delta_bottom'])/2
         x = np.arcsin(fs['delta'])
         fs['kappa'] = (fs['Z_top'] - fs['Z_bottom'])/(2*fs['r'])
 
@@ -1119,38 +1090,108 @@ class Equilibrium:
         return fs
 
     def update_pressure(self,p=None,additive=False,self_consistent=True):
+        """Update the pressure profile in `Equilibrium.derived`.
+
+        Args:
+            `p` (array): vector of the (new) pressure profile in units of Pa.
+            `additive` (bool, optional): [True] add `p` to the existing profile in `Equilibrium.derived`, or [False, default] not.
+            `self_consistent` (bool, optional): [True, default] update the pressure dependent alpha and beta profiles, or [False] not.
+        
+        Returns:
+            self
+        """
+        # add or set the new pressure profile 
         if additive:
             self.derived['p'] += p
         else:
             self.derived['p'] = p
+        # self-consistently update the pressure dependent alpha and beta profiles
         if self_consistent:
             self.update_beta()
             self.update_alpha()
+
         return self
 
     def update_beta(self,beta=None,Bref=None,self_consistent=True):
+        """Update the beta profile in `Equilibrium.derived`.
+
+        Args:
+            `beta` (array): vector of the (new) beta profile.
+            `Bref` (float, optional): the reference magnetic field value in units of T.
+            `self_consistent` (bool, optional): [True, default] update the beta dependent alpha profile, or [False] not.
+        
+        Returns:
+            self
+        """
+        # set the beta profile if provided, or calculate it self-consistently
         if beta:
             self.derived['beta'] = beta
         else:
             if not Bref:
                 Bref = self.derived['Bref_eqdsk']
             self.derived['beta'] = 8*np.pi*1E-7*self.derived['p']/(Bref**2)
+        
+        # update the alpha profile
         if self_consistent:
             self.update_alpha()
+        
         return self
 
     def update_alpha(self,alpha=None):
+        """Update the alpha profile in `Equilibrium.derived`.
+
+        Args:
+            `alpha` (array, optional): vector of the (new) alpha profile.
+   
+        Returns:
+            self
+        """
+        # set the alpha profile if provided, or calculate it self-consistently
         if alpha:
             self.derived['alpha'] = alpha
         else:
             self.derived['alpha'] = -1*self.raw['qpsi']**2*self.derived['Ro']*np.gradient(self.derived['beta'],self.derived['r'])
+        
         return self
     
-    def map_on_equilibrium(self,x=None,y=None,x_label=None,interp_order=9):
-        y_interpolated = interpolate.interp1d(x,y,kind=interp_order,bounds_error=False)(self.derived[x_label])
+    def map_on_equilibrium(self,x=None,y=None,x_label=None,interp_order=9,extrapolate=False):
+        """Map a 1D plasma profile on to the `x_label` radial coordinate basis of this `Equilibrium`.
+
+        Args:
+            `x` (array): vector of the radial basis of the existing profile in units of `x_label`.
+            `y` (array): vector of the 1D profile of the plasma quantity that is mapped on this `Equilibrium`.
+            `x_label` (str): label of the radial coordinate specification of `x`.
+            `interp_order` (float): the interpolation order used in the remapping of the 1D profile, [default] 9 based on experience.
+            `extrapolate` (bool): [True] use `fill_value` = 'extrapolate' in the interpolation, or [False, default] not.
+
+        Returns:
+            Two vectors, the x vector of `Equilibrium.derived` [`x_label`] and the y vector of the remapped 1D profile.
+        """
+
+        # remap the provided y profile, onto the x basis of x_label in this equilibrium
+        if extrapolate:
+            y_interpolated = interpolate.interp1d(x,y,kind=interp_order,bounds_error=False,fill_value='extrapolate')(self.derived[x_label])
+        else:
+            y_interpolated = interpolate.interp1d(x,y,kind=interp_order,bounds_error=False)(self.derived[x_label])
+        
         return self.derived[x_label],y_interpolated
     
-    def refine(self,nw=None,nbbbs=None,limitr=None,interp_order=9,retain_original=False,self_consistent=True):
+    def refine(self,nw=None,nbbbs=None,interp_order=9,retain_original=False,self_consistent=True):
+        """Refine the R,Z resolution of the `Equilibrium` assuming a g-EQDSK file as origin.
+
+        Args:
+            `nw` (int): desired grid resolution of the 1D profiles and 2D psi(R,Z) map (assuming a nw x nw grid).
+            `nbbbs` (int, optional): desired grid resolution of the last closed flux surface plasma boundary trace, currently not implemented!
+            `interp_order` (int, optional): the interpolation order used in the remapping of the 1D profiles, [default] 9 based on experience.
+            `retain_original` (bool, optional): [True] store the original raw g-EQDSK equilibrium data in `Equilibrium.original`, or [False, default] not.
+            `self_consistent` (bool, optional): [True, default] re-derive and re-trace all the existing additional data when applied to an existing `Equilibrium`, or [False] not.
+
+        Returns:
+            self
+
+        Raises:
+            ValueError: if the provided `nw` is smaller than the native resolution of the `Equilibrium`.
+        """
         print('Refining Equilibrium to {}x{}...'.format(nw,nw))
         if retain_original:
             self.original = copy.deepcopy(self.raw)
@@ -1162,7 +1203,7 @@ class Equilibrium:
             refinable = True
         else:
             refinable = False
-            print('Provided nw does not refine the equilibrium, provided:{} < exisiting:{}'.format(nw,self.raw['nw']))
+            raise ValueError('Provided nw does not refine the equilibrium, provided:{} < exisiting:{}'.format(nw,self.raw['nw']))
         
         '''
         elif nbbbs and nbbbs > self.raw['nbbbs']:
@@ -1185,6 +1226,7 @@ class Equilibrium:
                         #print('quantity: {}'.format(quantity))
                         self.raw[quantity] = interpolate.interp2d(old_x,old_y,self.raw[quantity],kind='quintic')(new_x,new_x)
             self.raw['nw'] = nw
+            # assuming a square psi(R,Z) grid (nw x nw)
             self.raw['nh'] = nw
         
         if self_consistent:
