@@ -4,6 +4,7 @@ The QuaLiKiz class
 
 import numpy as np
 from scipy import interpolate
+from fusionkit.core.utils import *
 
 ## QuaLiKiz
 class QLK:
@@ -13,7 +14,7 @@ class QLK:
         self.output = {}
     
     # I/O functions
-    def write_input(rho_fs=None,plasma=None,output_loc=None,fname=None,imp_composite=False):
+    def write_input(rho_fs=None,plasma=None,output_loc=None,fname=None,imp_composite=False,ktheta=None):
         q = interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.equilibrium.raw['qpsi'])(rho_fs)
         s = interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.equilibrium.derived['s'])(rho_fs)
         alpha = interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.equilibrium.derived['alpha'])(rho_fs)
@@ -64,7 +65,10 @@ class QLK:
         from qualikiz_tools.qualikiz_io.inputfiles import QuaLiKizXpoint, Electron, Ion, IonList
         from qualikiz_tools.qualikiz_io.inputfiles import QuaLiKizPlan
 
-        kthetarhos = list(np.linspace(0.1,0.8,8))
+        if not ktheta:
+            kthetarhos = list(np.linspace(0.1,0.8,8))
+        else:
+            kthetarhos=ktheta
         elec = Electron(T=Te,n=ne,At=RLTe,An=RLne,type=1,anis=1, danisdr=0)
         ion0 = Ion(T=Ti,n=ni,At=RLTi,An=RLni,A=mass_i,Z=charge_i,type=1,anis=1,danisdr=0)
         ion1 = Ion(T=Ti,n=n_LZ,At=RLTi,An=RLn_LZ,A=mass_LZ,Z=charge_L,type=1,anis=1,danisdr=0)
@@ -171,5 +175,7 @@ class QLK:
                     qlk_dataset['x_var'][i].append(ky_list[j])
                     qlk_dataset['omega'][i].append(float(value))
                     qlk_dataset['gamma'][i].append(float(gam_list[j]))
+        
+        list_to_array(qlk_dataset)
 
         return qlk_dataset
