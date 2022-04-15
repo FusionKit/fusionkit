@@ -36,5 +36,6 @@ FusionKit consists of a small core that handles all data and operations related 
 Development is ongoing, so more functionality is added on a daily basis.
 
 ## Users & developers
-- DIFFER (main developer)
-- EX2GK @ CCFE (user)
+- DIFFER
+- EX2GK @ CCFE
+- Aix-Marseille Université
