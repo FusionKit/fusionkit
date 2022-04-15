@@ -22,7 +22,7 @@ FusionKit consists of a small core that handles all data and operations related 
     - handling species data self-consistently,
     - automatic remapping of all species data on an Equilibrium.
 - **Equilibrium**, a class to handle all equilibrium related mapping and calculation of geometry derived quantities, currently includes:
-    - g-eqdsk reader (& writer to be added soon), 
+    - g-eqdsk reader & writer, 
     - flux surface tracing functionality,
     - derivation of local geometry quantities for s-alpha and Miller (MXH, Fourier to be added).
   
