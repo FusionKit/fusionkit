@@ -6,12 +6,14 @@ NOTE: TGLF does not allow (unescaped) spaces in the run path!
 NOTE: output_path needs to end with a /
 '''
 
-from locale import ERA
-import os, copy
-from sys import stdout
+import os
+import copy
+
 import matplotlib.pyplot as plt
 from numpy import sign
 import numpy as np
+
+from ..core.dataspine import DataSpine
 from ..core.utils import *
 
 CURSOR_UP_ONE = '\x1b[1A'
@@ -19,13 +21,13 @@ ERASE_LINE = '\x1b[2K'
 #ERASE_LINE = '\x1b[1M' #for Windows
 
 ## TGLF
-class TGLF:
+class TGLF(DataSpine):
     def __init__(self):
-        self.metadata = {}
+        DataSpine.__init__(self)
         self.input = {}
         self.output = {}
         self.collect = False
-        self.species_vector = {
+        self._species_vector = {
             'ZS':None,
             'MASS':None,
             'RLNS':None,
@@ -37,7 +39,7 @@ class TGLF:
             'VNS_SHEAR':None,
             'VTS_SHEAR':None,
         }
-        self.input_defaults = {
+        self._input_defaults = {
             # control
             'UNITS':'GYRO',
             'NS':2,
@@ -125,7 +127,8 @@ class TGLF:
             'DAMP_SIG':0.0,
             'NN_MAX_ERROR':-1.0,
         }
-    
+        self._ids_map = {}
+
     # I/O functions      
     def read_density_spectrum(self,output_path=None,nspecies=1):
         """Read the output.tglf.density_spectrum file.
@@ -137,16 +140,22 @@ class TGLF:
         Returns:
             _type_: _description_
         """
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         lines = read_file(path=output_path,file='out.tglf.density_spectrum')
 
         # if the file was successfully read
         if lines:
             # set file dependent variables
             header = 2
+            # check if storing IO in the TGLF object
             if self.collect:
                 if 'species' not in self.output:
                     self.output['species'] = {}
-                    species = self.output['species']
+                species = self.output['species']
+            # reader is used standalone
             else:
                 species = {}
             # read the file description
@@ -162,23 +171,44 @@ class TGLF:
                     if 'density_fluctuation' not in species[key_]:
                         species[key_]['density_fluctuation'] = []
                     species[key_]['density_fluctuation'].append(row[key])
-
-            density_spectrum = {'description':description, 'species':species}
+            
+            for key in range(1,nspecies+1):
+                species[key]['density_fluctuation'] = list_to_array(species[key]['density_fluctuation'])
 
             if not self.collect:
+                density_spectrum = {'description':description, 'species':species}
                 return density_spectrum
 
     def read_eigenvalue_spectrum(self,output_path=None,nmodes=1,frequency_convention=-1):
-        # frequency convention is set to -1 (ie GENE/QLK: electron diamagnetic direction modes negative, ion diamagnetic direction positive), 1 is the TGLF default
-        # read the out.tglf.eigenvalue_spectrum file
-        lines = read_file(path=output_path,file='out.tglf.eigenvalue_spectrum')
+        """Read the eigenvalue spectra and store them per mode.
+        Frequency convention is set to -1 (electron diamagnetic direction modes negative, ion diamagnetic direction positive), 1 is the TGLF default.
 
-        # set file dependent variables
-        header = 2
-        modes = {}
+        Args:
+            output_path (_type_, optional): _description_. Defaults to None.
+            nmodes (int, optional): _description_. Defaults to 1.
+            frequency_convention (int, optional): _description_. Defaults to -1.
+
+        Returns:
+            _type_: _description_
+        """
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
+        lines = read_file(path=output_path,file='out.tglf.eigenvalue_spectrum')
 
         # if the file was successfully read
         if lines:
+            # set file dependent variables
+            header = 2
+            # check if storing IO in the TGLF object
+            if self.collect:
+                if 'modes' not in self.output:
+                    self.output['modes'] = {}
+                modes = self.output['modes']
+            # reader is used standalone
+            else:
+                modes = {}
             # read the file description
             description = lines[0].strip()
             # read the gamma and omega spectra for all modes line by line
@@ -202,16 +232,14 @@ class TGLF:
                     else:
                         modes[mode_key]['omega'].append(np.NaN)
 
-            for mode_key in modes.keys():
-                for value in modes[mode_key]:
-                    if isinstance(modes[mode_key][value],list):
-                        modes[mode_key][value] = np.array(modes[mode_key][value])
-            eigenvalue_spectrum = {'description':description, 'modes':modes, 'nmodes':len(modes)}
-
-            return eigenvalue_spectrum
+            modes = list_to_array(modes)
+            
+            if not self.collect:
+                eigenvalue_spectrum = {'description':description, 'modes':modes, 'nmodes':len(modes)}
+                return eigenvalue_spectrum
 
     def read_field_spectrum(self,output_path=None,nky=None,nmodes=None):
-        """Read the field fluction intensity spectra and store them per mode.
+        """Read the field fluctuation intensity spectra and store them per mode.
 
         Args:
             output_path (str): path to the output directory of the tglf run. Defaults to None.
@@ -221,18 +249,28 @@ class TGLF:
         Returns:
             dict: contains the file description, the field fluctuation spectra per mode and the number of modes.
         """
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         # read the output.tglf.field_spectrum file
         lines = read_file(path=output_path,file='out.tglf.field_spectrum')
 
-        # set file dependent variables
-        header = 6
-        modes = {}
-        fields = {'A':[],
-                'phi':[],
-        }
-
         # if the file was successfully read
         if lines:
+            # set file dependent variables
+            header = 6
+            fields = {'A':[],
+                      'phi':[],
+            }
+            # check if storing IO in the TGLF object
+            if self.collect:
+                if 'modes' not in self.output:
+                    self.output['modes'] = {}
+                modes = self.output['modes']
+            # reader is used standalone
+            else:
+                modes = {}
             # read the file description
             description = lines[0].strip()
             # read the index limits
@@ -251,6 +289,8 @@ class TGLF:
             # per mode read the field fluctuation amplitude spectrum line by line
             for mode in range(0,nmodes):
                 mode_key = mode + 1
+                if mode_key not in modes:
+                    modes[mode_key] = {}
                 _fields = copy.deepcopy(fields)
                 for line in lines[header+(mode*_nky):header+(mode*_nky)+nky]:
                     row = line.split()
@@ -258,13 +298,26 @@ class TGLF:
                     for i_key,key in enumerate(_fields.keys()):
                         _fields[key].append(row[i_key])
                 _fields = list_to_array(_fields)
-                modes[mode_key] = _fields
+                modes[mode_key].update(_fields)
 
-            field_spectrum = {'description':description, 'modes':list_to_array(modes), 'nmodes':nmodes}
-
-            return field_spectrum
+            if not self.collect:
+                field_spectrum = {'description':description, 'modes':modes, 'nmodes':nmodes}
+                return field_spectrum
 
     def read_gbflux(self,output_path=None,nspecies=1):
+        """Read the gyro-Bohm normalised fluxes averaged over radius and summed over mode number.
+
+        Args:
+            output_path (_type_, optional): _description_. Defaults to None.
+            nspecies (int, optional): _description_. Defaults to 1.
+
+        Returns:
+            _type_: _description_
+        """
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         # read the output.tglf.gbflux file
         lines = read_file(path=output_path,file='out.tglf.gbflux')
 
@@ -272,6 +325,14 @@ class TGLF:
 
         # if the file was successfully read
         if lines:
+            # check if storing IO in the TGLF object
+            if self.collect:
+                if 'species' not in self.output:
+                    self.output['species'] = {}
+                species = self.output['species']
+            # reader is used standalone
+            else:
+                species = {}
             # convert the line of values into a list of floats
             fluxes_list = [float(value) for value in lines[0].split()]
             # split up the list of floats into the separate fluxes
@@ -289,10 +350,10 @@ class TGLF:
                 species[key_]['Pi'] = Pi_PiGB[key]
                 species[key_]['S'] = S_SGB[key]
 
-            gbfluxes = {'description':'gyrobohm normalized fluxes averaged over radius and summed over mode number', 
-                        'species':species}
-            
-            return gbfluxes
+            if not self.collect:
+                gbfluxes = {'description':'gyrobohm normalized fluxes averaged over radius and summed over mode number', 
+                            'species':species}
+                return gbfluxes
 
     def read_grid(self,output_path=None):
         """Read the out.tglf.grid file
@@ -303,6 +364,10 @@ class TGLF:
         Returns:
             dict: {'NS':int,'NXGRID':int}
         """
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         # read the out.tglf.grid file
         lines = read_file(path=output_path,file='out.tglf.grid')
 
@@ -315,7 +380,7 @@ class TGLF:
             return grid
 
     def read_input(self,output_path=None,file='input.tglf'):
-        """Read the input.tglf file
+        """Read the TGLF inputs from the specified run folder.
 
         Args:
             `output_path` (str): path to the TGLF run.
@@ -324,6 +389,11 @@ class TGLF:
         Returns:
             dict: all TGLF variables set in the input.tglf file as key:value pairs
         """
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
+        # read the input.tglf file
         lines = read_file(path=output_path,file=file)
 
         # if the file was successfully read
@@ -349,7 +419,7 @@ class TGLF:
                     # check if storing IO in the TGLF object
                     if self.collect:
                         self.input.update({key:value})
-                    # else reader is used standalone
+                    # reader is used standalone
                     else:
                         input.update({key:value})
 
@@ -357,7 +427,7 @@ class TGLF:
                 return input
 
     def read_input_gen(self,output_path=None):
-        """Read the input.tglf.gen file.
+        """Read the ouput TGLF input_gen.
 
         Args:
             `output_path` (str): path to the TGLF run.
@@ -365,6 +435,11 @@ class TGLF:
         Returns:
             dict: all the TGLF input variables used in the run output in input.tglf.gen.
         """
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+    
+        # read the output.tglf.input_gen file
         lines = read_file(path=output_path,file='input.tglf.gen')
 
         # if the file was successfully read
@@ -395,20 +470,87 @@ class TGLF:
             if not self.collect:
                 return input_gen
 
-    def _read_intensity_spectrum(output_path=None):
+    def read_intensity_spectrum(self,output_path=None,nmodes=None,nspecies=None,nky=None):
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
 
-        return
+        # read the output.tglf.intensity_spectrum file
+        lines = read_file(path=output_path,file='out.tglf.intensity_spectrum')
+
+        if lines:
+            # set file dependent variables
+            header = 4
+            fluctuations = {'n':[],
+                            'T':[],
+                            'v_par':[],
+                            'E_par':[]
+            }
+            # check if storing IO in the TGLF object
+            if self.collect:
+                if 'species' not in self.output:
+                    self.output['species'] = {}
+                species = self.output['species']
+            # reader is used standalone
+            else:
+                species = {}
+            # read the file description
+            description = lines[0].strip()
+            # read the index limits
+            [_nspecies,_nky,_nmodes] = [int(limit) for limit in lines[3].strip().split()]
+            # set and check index limits if applicable 
+            if not nspecies or not nspecies <= _nspecies:
+                nspecies = _nspecies
+            if not nky or not nky <= _nky:
+                nky = _nky
+            if not nmodes or not nmodes <= _nmodes:
+                nmodes = _nmodes
+            # per mode, per species read the field fluctuation amplitude spectrum line by line
+            for _species in range(0,nspecies):
+                species_key = _species + 1
+                if species_key not in species:
+                    species[species_key] = {}
+                if 'modes' not in species[species_key]:
+                    species[species_key]['modes'] = {}
+                modes = species[species_key]['modes']
+                for mode in range(0,nmodes):
+                    mode_key = mode + 1
+                    if mode_key not in modes:
+                        modes[mode_key] = {}
+                    if 'fluctuation_intensity' not in modes[mode_key]:
+                        modes[mode_key]['fluctuation_intensity'] = {}
+                    _fluctuations = copy.deepcopy(fluctuations)
+                    for ky in range(0,nky):
+                        index = header+(_species*_nmodes*_nky)+(ky*_nmodes)+mode
+                        row = lines[index].strip().split()
+                        row = [float(value) for value in row]
+                        for i_key,key in enumerate(_fluctuations.keys()):
+                            _fluctuations[key].append(row[i_key])
+                    _fluctuations = list_to_array(_fluctuations)
+                    modes[mode_key].update({'fluctuation_intensity':_fluctuations})
+            
+            if not self.collect:
+                intensity_spectrum = {'description':description, 'species':species, 'nspecies':nspecies, 'nky':nky, 'nmodes':nmodes}
+                return intensity_spectrum
 
     def read_ky_spectrum(self,output_path=None):
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         # read the out.tglf.ky_spectrum file
         lines = read_file(path=output_path,file='out.tglf.ky_spectrum')
 
-        # set file dependent variables
-        header = 2
-        ky_list = []
-
         # if the file was successfully read
         if lines:
+            # set file dependent variables
+            header = 2
+            if self.collect:
+                if 'ky' not in self.output:
+                    self.output['ky'] = []
+                ky_list = self.output['ky']
+            else:
+                ky_list = []
             # get the number of ky in the spectrum and then read the spectrum into a list
             for i_line,line in enumerate(lines):
                 if i_line == 1:
@@ -416,17 +558,77 @@ class TGLF:
                 if header <= i_line <= nky+header:
                     ky_list.append(float(line.strip()))
         
-            ky_spectrum = {'nky':nky, 'ky':ky_list}
+            if not self.collect:
+                ky_spectrum = {'nky':nky, 'ky':ky_list}
+                return ky_spectrum
+
+    def read_nete_crossphase_spectrum(self,output_path=None,nmodes=None,nky=None):
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
         
-            return ky_spectrum
+        # read the output.tglf.nete_crossphase_spectrum file
+        lines = read_file(path=output_path,file='out.tglf.nete_crossphase_spectrum')
 
-    def _read_nete_crossphase_spectrum(output_path=None):
+        if lines:
+            # set file dependent variables
+            header = 2
+            species_key = 1 # since this is nete cross phase spectrum
+            # check if storing IO in the TGLF object
+            if self.collect:
+                if 'species' not in self.output:
+                    self.output['species'] = {}
+                species = self.output['species']
+            else:
+                species = {}
+            # read the file description
+            description = lines[0].strip()
+            # set and check index limits if applicable 
+            _nmodes = len(lines[header].strip().split())
+            _nky = len(lines[header:])
+            if not nmodes or not nmodes <= _nmodes:
+                nmodes = _nmodes
+            if not nky or not nky <= _nky:
+                nky = _nky
+            if species_key not in species:
+                species[species_key] = {}
+            if 'modes' not in species[species_key]:
+                    species[species_key]['modes'] = {}
+            modes = species[species_key]['modes']
+            for ky in range(0,nky):
+                index = header + ky
+                row = lines[index].strip().split()
+                row = [float(value) for value in row]
+                for mode in range(0,nmodes):
+                    mode_key = mode + 1
+                    if mode_key not in modes:
+                        modes[mode_key] = {}
+                    if 'nt_cross_phase' not in modes[mode_key]:
+                        modes[mode_key].update({'nt_cross_phase':[]})
+                    modes[mode_key]['nt_cross_phase'].append(row[mode])
 
-        return
+            if not self.collect:
+                nete_crossphase_spectrum = {'description':description, 'modes':modes, 'nmodes':nmodes, 'nky':nky}
+                return nete_crossphase_spectrum
 
-    def _read_nsts_crossphase_spectrum(output_path=None):
+    def _read_nsts_crossphase_spectrum(self,output_path=None):
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+        
+        # read the output.tglf.nsts_crossphase_spectrum file
+        lines = read_file(path=output_path,file='out.tglf.nsts_crossphase_spectrum')
 
-        return
+        if lines:
+            header = 1
+            for line in lines:
+                row = line.strip().split()
+
+                # check if the row is a header line
+                if 'species index' in row:
+                    bla=0
+
+            return
 
     def read_prec(self,output_path=None):
         """Read the out.tglf.prec file.
@@ -437,6 +639,10 @@ class TGLF:
         Returns:
             _type_: _description_
         """
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         lines = read_file(path=output_path,file='out.tglf.prec')
 
         if lines:
@@ -448,6 +654,10 @@ class TGLF:
                 return prec
 
     def _read_QL_flux_spectrum(self,output_path=None,nspecies=1,nfields=1,nmodes=1):
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         # read the output.tglf.QL_flux_spectrum file
         lines = read_file(path=output_path,file='out.tglf.QL_flux_spectrum')
 
@@ -508,6 +718,10 @@ class TGLF:
             return QL_flux_spectrum
 
     def read_run(self,output_path=None):
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         # read the out.tglf.run file
         lines = read_file(path=output_path,file='out.tglf.run')
 
@@ -544,6 +758,10 @@ class TGLF:
             return run
 
     def read_sat_geo_spectrum(self,output_path=None,nmodes=None):
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         # read the out.tglf.sat_geo_spectrum file
         lines = read_file(path=output_path,file='out.tglf.sat_geo_spectrum')
 
@@ -572,6 +790,10 @@ class TGLF:
             return sat_geo_spectrum
 
     def read_scalar_saturation_parameters(self,output_path=None):
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         # read the out.tglf.scalar_saturation_parameters file
         lines = read_file(path=output_path,file='out.tglf.scalar_saturation_parameters')
 
@@ -597,6 +819,10 @@ class TGLF:
             return scalar_sat_params
 
     def read_spectral_shift(self,output_path=None):
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         # read the out.tglf.spectral_shift file
         lines = read_file(path=output_path,file='out.tglf.spectral_shift')
 
@@ -616,21 +842,31 @@ class TGLF:
             return spectral_shift
 
     def read_sum_flux_spectrum(self,output_path=None,nspecies=1,nfields=1):
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         # read the output.tglf.sum_flux_spectrum file
         lines = read_file(path=output_path,file='out.tglf.sum_flux_spectrum')
 
-        # set file dependent variables
-        species = {}
-        fluxes = {'Gamma':{},
-                'Q':{},
-                'Pi_tor':{},
-                'Pi_par':{},
-                'S':{}
-        }
-        fields = ['phi','Bper','Bpar']
-
         # if the file was successfully read
         if lines:
+            # set file dependent variables
+            # check if storing IO in the TGLF object
+            if self.collect:
+                if 'species' not in self.output:
+                    self.output['species'] = {}
+                species = self.output['species']
+            # reader is used standalone
+            else:
+                species = {}
+            fluxes = {'Gamma':{},
+                      'Q':{},
+                      'Pi_tor':{},
+                      'Pi_par':{},
+                      'S':{}
+            }
+            fields = ['phi','Bper','Bpar']
             # go line by line
             for line in lines:
                 row = line.strip().split()
@@ -672,6 +908,10 @@ class TGLF:
             return flux_spectrum
 
     def read_temperature_spectrum(self,output_path=None,nspecies=1):
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         # read the output.tglf.temperature_spectrum file
         lines = read_file(path=output_path,file='out.tglf.temperature_spectrum')
 
@@ -700,6 +940,10 @@ class TGLF:
             return temperature_spectrum
 
     def read_version(self,output_path=None):
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         # read the out.tglf.version file
         lines = read_file(path=output_path,file='out.tglf.version')
 
@@ -718,6 +962,10 @@ class TGLF:
             return version
 
     def read_wavefunction(self,output_path=None,nmodes=None):
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         # read the output.tglf.wavefunction file
         lines = read_file(path=output_path,file='out.tglf.wavefunction')
 
@@ -756,6 +1004,10 @@ class TGLF:
             return field_spectrum
 
     def read_width_spectrum(self,output_path=None):
+        # if unspecified, for convenience check for output path in metadata
+        if not output_path and 'output_path' in self.metadata:
+            output_path = self.metadata['output_path']
+
         # read the out.tglf.width_spectrum file
         lines = read_file(path=output_path,file='out.tglf.width_spectrum')
 
@@ -798,10 +1050,10 @@ class TGLF:
                         f.write('# {}\n'.format(message))
 
                 for key in self.input:
-                    if key in self.input_defaults or key.split('_')[0] in self.species_vector:
+                    if key in self._input_defaults or key.split('_')[0] in self._species_vector:
                         write_key = True
                     if ignore_defaults:
-                        if key in self.input_defaults and self.input[key] == self.input_defaults[key]:
+                        if key in self._input_defaults and self.input[key] == self._input_defaults[key]:
                             write_key = False
                                 
                     if write_key:
@@ -841,32 +1093,34 @@ class TGLF:
 
     # run functions
     def run(self,path=None,gacode_platform=None,gacode_root=None,init_gacode=True,verbose=False,collect=True):
-        if not gacode_platform:
-            if 'gacode_platform' in self.metadata:
-                gacode_platform = self.metadata['gacode_platform']
-            else:
-                raise ValueError('No GACODE_PLATFORM was set!')
-        if not gacode_root:
-            if 'gacode_root' in self.metadata:
-                gacode_root = self.metadata['gacode_root']
-            else:
-                raise ValueError('No GACODE_ROOT was set!')
+        if init_gacode:
+            if not gacode_platform:
+                if 'gacode_platform' in self.metadata:
+                    gacode_platform = self.metadata['gacode_platform']
+                else:
+                    raise ValueError('No GACODE_PLATFORM was set!')
+            if not gacode_root:
+                if 'gacode_root' in self.metadata:
+                    gacode_root = self.metadata['gacode_root']
+                else:
+                    raise ValueError('No GACODE_ROOT was set!')
+            bash_init_gacode = [
+                'export GACODE_PLATFORM={}'.format(gacode_platform),
+                'export GACODE_ROOT={}'.format(gacode_root),
+                '. $GACODE_ROOT/shared/bin/gacode_setup'
+            ]
+
         if not path:
             if 'run_path' in self.metadata:
                 path = self.metadata['run_path']
             else:
                 raise ValueError('No path for run was set!')
 
-        bash_init_gacode = [
-            'export GACODE_PLATFORM={}'.format(gacode_platform),
-            'export GACODE_ROOT={}'.format(gacode_root),
-            '. $GACODE_ROOT/shared/bin/gacode_setup'
-        ]
         bash = [
             'cd {}'.format(path),
             'tglf -e .'
         ]
-        
+
         if verbose:
             print('Running TGLF at {} ...'.format(path))
 
@@ -874,25 +1128,30 @@ class TGLF:
             commands = '; '.join(bash_init_gacode+bash)
         else:
             commands = '; '.join(bash)
-        
+
         execution = os.popen(commands)
-        
+
         if verbose:
             print(execution.read())
         else:
             execution.read()
-        
+
         if collect:
             self.collect_output(output_path=path)
-        
+
         return
-    
+
     def run_1d_scan(self,path=None,var=None,values=[],verbose=False,return_self=True):
-        if var not in self.input:
-            if values:
-                self.input[var] = values[0]
-            else:
-                raise ValueError('Specify scan values for {}!'.format(var))
+        # check if scan variable was provided
+        if var:
+            # pre-fill a value for the scan variable in case it is not already in input
+            if var not in self.input:
+                if values:
+                    self.input[var] = values[0]
+                else:
+                    raise ValueError('Specify scan values for {}!'.format(var))
+        else:
+            raise ValueError('Specify scan variable!')
         
         scan_output = {var:{}}
 
@@ -901,8 +1160,6 @@ class TGLF:
         for value in values:
             # print a progress %
             print('{} TGLF 1D scan {}% complete'.format(ERASE_LINE,round(100*(find(value,values))/len(values))),flush=False,end='\r')
-            #stdout.flush()
-            #print('{} = {}'.format(var,value))
             # update the scan variable value
             self.input[var] = float(value)
             # generate a new input.tglf file
@@ -958,7 +1215,7 @@ class TGLF:
         if 'modes' not in self.output:
             self.output['modes'] = {}
         
-        self.read_input(path=output_path)
+        self.read_input(output_path=output_path)
         self.output['inputs_gen'] = self.read_input_gen(output_path=output_path)
 
         # read all the output files
@@ -1083,7 +1340,7 @@ class TGLF:
 
         return
 
-    def _plot_wavefunctions(self,output_path=None,nfields=1,):
+    def _plot_wavefunctions(self,output_path=None,nfields=1):
         """Plot the wavefunctions as a function of ballooning angle for the specified number of fields, as output by `read_wavefunction()`.
 
         Args:
@@ -1092,25 +1349,25 @@ class TGLF:
         """
 
         plt.figure()
-        plt.plot(waves['modes'][1]['theta']/np.pi,waves['modes'][1]['RE(phi)'],'r--',label='Re(phi)')
-        plt.plot(waves['modes'][1]['theta']/np.pi,waves['modes'][1]['IM(phi)'],'b--',label='Im(phi)')
-        plt.plot(waves['modes'][1]['theta']/np.pi,np.sqrt(waves['modes'][1]['RE(phi)']**2+waves['modes'][1]['IM(phi)']**2),'k-',label='|phi|')
+        plt.plot(self.output['modes'][1]['theta']/np.pi,self.output['modes'][1]['RE(phi)'],'r--',label='Re(phi)')
+        plt.plot(self.output['modes'][1]['theta']/np.pi,self.output['modes'][1]['IM(phi)'],'b--',label='Im(phi)')
+        plt.plot(self.output['modes'][1]['theta']/np.pi,np.sqrt(self.output['modes'][1]['RE(phi)']**2+self.output['modes'][1]['IM(phi)']**2),'k-',label='|phi|')
         plt.xlabel('$\\theta/\\pi$')
         plt.legend()
 
-        if 'RE(Bper)' in waves['modes'][1]:
+        if 'RE(Bper)' in self.output['modes'][1]:
             plt.figure()
-            plt.plot(waves['modes'][1]['theta']/np.pi,waves['modes'][1]['RE(Bper)'],'r--',label='Re(Bper)')
-            plt.plot(waves['modes'][1]['theta']/np.pi,waves['modes'][1]['IM(Bper)'],'b--',label='Im(Bper)')
-            plt.plot(waves['modes'][1]['theta']/np.pi,np.sqrt(waves['modes'][1]['RE(Bper)']**2+waves['modes'][1]['IM(Bper)']**2),'k-',label='|Bper|')
+            plt.plot(self.output['modes'][1]['theta']/np.pi,self.output['modes'][1]['RE(Bper)'],'r--',label='Re(Bper)')
+            plt.plot(self.output['modes'][1]['theta']/np.pi,self.output['modes'][1]['IM(Bper)'],'b--',label='Im(Bper)')
+            plt.plot(self.output['modes'][1]['theta']/np.pi,np.sqrt(self.output['modes'][1]['RE(Bper)']**2+self.output['modes'][1]['IM(Bper)']**2),'k-',label='|Bper|')
             plt.xlabel('$\\theta/\\pi$')
             plt.legend()
 
-        if 'RE(Bpar)' in waves['modes'][1]:
+        if 'RE(Bpar)' in self.output['modes'][1]:
             plt.figure()
-            plt.plot(waves['modes'][1]['theta']/np.pi,waves['modes'][1]['RE(Bpar)'],'r--',label='Re(Bpar)')
-            plt.plot(waves['modes'][1]['theta']/np.pi,waves['modes'][1]['IM(Bpar)'],'b--',label='Im(Bpar)')
-            plt.plot(waves['modes'][1]['theta']/np.pi,np.sqrt(waves['modes'][1]['RE(Bpar)']**2+waves['modes'][1]['IM(Bpar)']**2),'k-',label='|Bpar|')
+            plt.plot(self.output['modes'][1]['theta']/np.pi,self.output['modes'][1]['RE(Bpar)'],'r--',label='Re(Bpar)')
+            plt.plot(self.output['modes'][1]['theta']/np.pi,self.output['modes'][1]['IM(Bpar)'],'b--',label='Im(Bpar)')
+            plt.plot(self.output['modes'][1]['theta']/np.pi,np.sqrt(self.output['modes'][1]['RE(Bpar)']**2+self.output['modes'][1]['IM(Bpar)']**2),'k-',label='|Bpar|')
             plt.xlabel('$\\theta/\\pi$')
             plt.legend()
         plt.show()
@@ -1251,7 +1508,7 @@ class TGLF:
                     if control_params[key]==None:
                         exit("Control parameter: '"+key+"' has not been specified, please check your inputs!")
         if species != None:
-            for key in self.species_vector:
+            for key in self._species_vector:
                 for index in species:
                     if key in species[index]:
                         species_params[key+'_'+str(index)] = species[index][key]
