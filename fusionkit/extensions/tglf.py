@@ -606,12 +606,14 @@ class TGLF(DataSpine):
                     if 'nt_cross_phase' not in modes[mode_key]:
                         modes[mode_key].update({'nt_cross_phase':[]})
                     modes[mode_key]['nt_cross_phase'].append(row[mode])
+            
+            modes = list_to_array(modes)
 
             if not self.collect:
                 nete_crossphase_spectrum = {'description':description, 'modes':modes, 'nmodes':nmodes, 'nky':nky}
                 return nete_crossphase_spectrum
 
-    def _read_nsts_crossphase_spectrum(self,output_path=None):
+    def read_nsts_crossphase_spectrum(self,output_path=None,nspecies=None,nmodes=None,nky=None):
         # if unspecified, for convenience check for output path in metadata
         if not output_path and 'output_path' in self.metadata:
             output_path = self.metadata['output_path']
@@ -620,15 +622,58 @@ class TGLF(DataSpine):
         lines = read_file(path=output_path,file='out.tglf.nsts_crossphase_spectrum')
 
         if lines:
+            # set file dependent variables
             header = 1
-            for line in lines:
+            species_header = 2
+            # check if storing IO in the TGLF object
+            if self.collect:
+                if 'species' not in self.output:
+                    self.output['species'] = {}
+                species = self.output['species']
+            else:
+                species = {}
+            # read the file description
+            description = ' '.join(lines[0].strip().split())
+            # set and check index limits if applicable
+            _nspecies = int(description.split()[-2])
+            _nmodes = int(len(lines[header+species_header].strip().split()))
+            _nky = int((len(lines)-header)/_nspecies)-species_header
+            if not nspecies or not nspecies <= _nspecies:
+                nspecies = _nspecies
+            if not nmodes or not nmodes <= _nmodes:
+                nmodes = _nmodes
+            if not nky or not nky <= _nky:
+                nky = _nky
+            for i_line,line in enumerate(lines[header:]):
                 row = line.strip().split()
-
                 # check if the row is a header line
-                if 'species index' in row:
-                    bla=0
+                if 'species' in row:
+                    species_key = int(row[-1])
+                    if species_key not in species:
+                        species[species_key] = {}
+                    if 'modes' not in species[species_key]:
+                        species[species_key]['modes'] = {}
+                    modes = species[species_key]['modes']
+                elif '(nsts_phase_spectrum_out' in row[0].split(','):
+                    if 'nsts_phase_spectrum_out' not in description:
+                        description += ', '+''.join(row)
+                else:
+                    if (species_key*species_header)+((species_key-1)*_nky)-1 < i_line <= (species_key*species_header)+((species_key-1)*_nky)+nky-1:
+                        print(species_key,i_line)
+                        row = [float(value) for value in row]
+                        for mode in range(0,nmodes):
+                            mode_key = mode + 1
+                            if mode_key not in modes:
+                                modes[mode_key] = {}
+                            if 'nt_cross_phase' not in modes[mode_key]:
+                                modes[mode_key].update({'nt_cross_phase':[]})
+                            modes[mode_key]['nt_cross_phase'].append(row[mode])
 
-            return
+            modes = list_to_array(modes)
+
+            if not self.collect:
+                nsts_crossphase_spectrum = {'description':description, 'species':species, 'nmodes':nmodes, 'nky':nky}
+                return nsts_crossphase_spectrum
 
     def read_prec(self,output_path=None):
         """Read the out.tglf.prec file.
