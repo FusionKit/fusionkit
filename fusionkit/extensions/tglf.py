@@ -129,55 +129,9 @@ class TGLF(DataSpine):
         }
         self._ids_map = {}
 
-    # I/O functions      
-    def read_density_spectrum(self,run_path=None,nspecies=1):
-        """Read the output.tglf.density_spectrum file.
-
-        Args:
-            run_path (_type_, optional): _description_. Defaults to None.
-            nspecies (int, optional): _description_. Defaults to 1.
-
-        Returns:
-            _type_: _description_
-        """
-        # if unspecified, for convenience check for output path in metadata
-        if not run_path and 'run_path' in self.metadata:
-            run_path = self.metadata['run_path']
-
-        lines = read_file(path=run_path,file='out.tglf.density_spectrum')
-
-        # if the file was successfully read
-        if lines:
-            # set file dependent variables
-            header = 2
-            # check if storing IO in the TGLF object
-            if self.collect:
-                if 'species' not in self.output:
-                    self.output['species'] = {}
-                species = self.output['species']
-            # reader is used standalone
-            else:
-                species = {}
-            # read the file description
-            description = lines[0].strip()
-            # read the density fluctuation amplitude spectrum for each species line by line
-            for line in lines[header:]:
-                row = line.split()
-                row = [float(value) for value in row]
-                for key in range(0,nspecies):
-                    key_ = key+1
-                    if key_ not in species:
-                        species[key_]={}
-                    if 'density_fluctuation' not in species[key_]:
-                        species[key_]['density_fluctuation'] = []
-                    species[key_]['density_fluctuation'].append(row[key])
-            
-            for key in range(1,nspecies+1):
-                species[key]['density_fluctuation'] = list_to_array(species[key]['density_fluctuation'])
-
-            if not self.collect:
-                density_spectrum = {'description':description, 'species':species}
-                return density_spectrum
+    # I/O functions  
+    def read_density_spectrum(self,run_path=None,nspecies=None):
+        self.read_fluctuation_spectrum(run_path=run_path,file='out.tglf.density_spectrum',symbol='n',nspecies=nspecies)
 
     def read_eigenvalue_spectrum(self,run_path=None,nmodes=1,frequency_convention=-1):
         """Read the eigenvalue spectra and store them per mode.
@@ -303,6 +257,66 @@ class TGLF(DataSpine):
             if not self.collect:
                 field_spectrum = {'description':description, 'modes':modes, 'nmodes':nmodes}
                 return field_spectrum
+
+    def read_fluctuation_spectrum(self,run_path=None,file=None,symbol=None,nspecies=None):
+        """Read the output.tglf.density_spectrum or output.tglf.temperature_spectrum file.
+
+        Args:
+            run_path (_type_, optional): _description_. Defaults to None.
+            nspecies (int, optional): _description_. Defaults to None.
+
+        Returns:
+            _type_: _description_
+        """
+        # if unspecified, for convenience check for output path in metadata
+        if not run_path and 'run_path' in self.metadata:
+            run_path = self.metadata['run_path']
+
+        lines = read_file(path=run_path,file=file)
+
+        # if the file was successfully read
+        if lines:
+            # set file dependent variables
+            header = 2
+            fluctuations = {'fluctuations':{'amplitude':{symbol:[]}}}
+            # check if storing IO in the TGLF object
+            if self.collect:
+                if 'species' not in self.output:
+                    self.output['species'] = {}
+                species = self.output['species']
+            # reader is used standalone
+            else:
+                species = {}
+            # read the file description
+            description = lines[0].strip()
+            # set and check index limits if applicable 
+            _nspecies = len(lines[header].strip().split())
+            if not nspecies or not nspecies <= _nspecies:
+                nspecies = _nspecies
+            for i_species in range(0,nspecies):
+                key_species = i_species+1
+                if key_species not in species:
+                    species[key_species]=copy.deepcopy(fluctuations)
+                #elif symbol not in species[key_species]['fluctuations']['amplitude']:
+                #    species[key_species]['fluctuations']['amplitude'][symbol] = []
+                else:
+                    merge_trees(fluctuations,species[key_species])
+
+            #print(species)
+            # read the fluctuation amplitude spectrum for each species line by line
+            for line in lines[header:]:
+                row = line.strip().split()
+                row = [float(value) for value in row]
+                for i_species in range(0,nspecies):
+                    #print(i_species)
+                    species[i_species+1]['fluctuations']['amplitude'][symbol].append(row[i_species])
+
+            for key_species in range(1,nspecies+1):
+                species[key_species]['fluctuations']['amplitude'][symbol] = list_to_array(species[key_species]['fluctuations']['amplitude'][symbol])
+
+            if not self.collect:
+                fluctuation_spectrum = {'description':description, 'species':species}
+                return fluctuation_spectrum
 
     def read_gbflux(self,run_path=None,nspecies=None):
         """Read the gyro-Bohm normalised fluxes averaged over radius and summed over mode number.
@@ -560,6 +574,8 @@ class TGLF(DataSpine):
                     nky = int(line.strip())
                 if header <= i_line <= nky+header:
                     ky_list.append(float(line.strip()))
+            
+            list_to_array(ky_list)
         
             if not self.collect:
                 ky_spectrum = {'nky':nky, 'ky':ky_list}
@@ -709,19 +725,12 @@ class TGLF(DataSpine):
         # read the output.tglf.QL_flux_spectrum file
         lines = read_file(path=run_path,file='out.tglf.QL_flux_spectrum')
 
-        # set file dependent variables
-        species = {}
-        fluxes = {'Gamma':{},
-                'Q':{},
-                'Pi_tor':{},
-                'Pi_par':{},
-                'S':{}
-        }
-        fields = ['phi','Bper','Bpar']
-
         # if the file was successfully read
         if lines:
+            # set file dependent variables
             header = 4
+            weights = {'QL_weights':{'Gamma':{}, 'Q':{}, 'Pi_tor':{}, 'Pi_par':{}, 'S':{}}}
+            fields = ['phi','Bper','Bpar']
             # check if storing IO in the TGLF object
             if self.collect:
                 if 'species' not in self.output:
@@ -747,12 +756,11 @@ class TGLF(DataSpine):
                 if 'species' in row:
                     key_species = int(row[2])
                     if key_species not in species:
-                        species.update({key_species:{'QL_weights':copy.deepcopy(fluxes)}})
-                    if 'QL_weights' not in species[key_species]:
-                        species[key_species].update({'QL_weights':copy.deepcopy(fluxes)})
+                        species.update({key_species:copy.deepcopy(weights)})
+                    merge_trees(weights,species[key_species])
                     ql_weigths = species[key_species]['QL_weights']
                     i_field = int(row[-1])
-                    for key_flux in fluxes.keys():
+                    for key_flux in weights['QL_weights'].keys():
                         if key_flux not in ql_weigths:
                             ql_weigths[key_flux] = {}
                         if fields[i_field-1] not in ql_weigths[key_flux]:
@@ -761,13 +769,13 @@ class TGLF(DataSpine):
                     i_mode = int(row[-1])
                 else:
                     row = [float(value) for value in row]
-                    for i_flux,key_flux in enumerate(fluxes.keys()):
+                    for i_flux,key_flux in enumerate(weights['QL_weights'].keys()):
                         if i_mode+1 > len(ql_weigths[key_flux][fields[i_field-1]]):
                             ql_weigths[key_flux][fields[i_field-1]].append([])    
                         ql_weigths[key_flux][fields[i_field-1]][i_mode].append(row[i_flux])
             
             for key_species in species:
-                for key_flux in fluxes:
+                for key_flux in weights['QL_weights']:
                     list_to_array(species[key_species]['QL_weights'][key_flux])
 
             if not self.collect:
@@ -966,37 +974,8 @@ class TGLF(DataSpine):
 
             return flux_spectrum
 
-    def read_temperature_spectrum(self,run_path=None,nspecies=1):
-        # if unspecified, for convenience check for output path in metadata
-        if not run_path and 'run_path' in self.metadata:
-            run_path = self.metadata['run_path']
-
-        # read the output.tglf.temperature_spectrum file
-        lines = read_file(path=run_path,file='out.tglf.temperature_spectrum')
-
-        # set file dependent variables
-        header = 2
-        species = {}
-
-        # if the file was successfully read
-        if lines:
-            # read the file description
-            description = lines[0].strip()
-            # read the temperature fluctuation amplitude spectrum for each species line by line 
-            for line in lines[header:]:
-                row = line.split()
-                row = [float(value) for value in row]
-                for key in range(0,nspecies):
-                    key_ = key+1
-                    if key_ not in species:
-                        species[key_]={}
-                    if 'temperature_fluctuation' not in species[key_]:
-                        species[key_]['temperature_fluctuation'] = []
-                    species[key_]['temperature_fluctuation'].append(row[key])
-
-            temperature_spectrum = {'description':description, 'species':species}
-
-            return temperature_spectrum
+    def read_temperature_spectrum(self,run_path=None,nspecies=None):
+        self.read_fluctuation_spectrum(run_path=run_path,file='out.tglf.temperature_spectrum',symbol='T',nspecies=nspecies)
 
     def read_version(self,run_path=None):
         # if unspecified, for convenience check for output path in metadata
