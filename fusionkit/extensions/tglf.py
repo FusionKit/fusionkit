@@ -133,19 +133,19 @@ class TGLF(DataSpine):
     def read_density_spectrum(self,run_path=None,nspecies=None):
         self.read_fluctuation_spectrum(run_path=run_path,file='out.tglf.density_spectrum',symbol='n',nspecies=nspecies)
 
-    def read_eigenvalue_spectrum(self,run_path=None,nmodes=1,frequency_convention=-1):
+    def read_eigenvalue_spectrum(self,run_path=None,nmodes=None,sign_convention=-1):
         """Read the eigenvalue spectra and store them per mode.
         Frequency convention is set to -1 (electron diamagnetic direction modes negative, ion diamagnetic direction positive), 1 is the TGLF default.
 
         Args:
             run_path (_type_, optional): _description_. Defaults to None.
             nmodes (int, optional): _description_. Defaults to 1.
-            frequency_convention (int, optional): _description_. Defaults to -1.
+            sign_convention (int, optional): _description_. Defaults to -1.
 
         Returns:
             _type_: _description_
         """
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -155,45 +155,53 @@ class TGLF(DataSpine):
         if lines:
             # set file dependent variables
             header = 2
+            ev = {'gamma':{},'omega':{}}
             # check if storing IO in the TGLF object
             if self.collect:
-                if 'modes' not in self.output:
-                    self.output['modes'] = {}
-                modes = self.output['modes']
+                if 'eigenvalues' not in self.output:
+                    self.output['eigenvalues'] = {}
+                eigenvalues = self.output['eigenvalues']
             # reader is used standalone
             else:
-                modes = {}
+                eigenvalues = {}
             # read the file description
             description = lines[0].strip()
-            # read the gamma and omega spectra for all modes line by line
+            # set and check index limits if applicable 
+            _nmodes = int(len(lines[header].strip().split())/2)
+            if not nmodes or not nmodes <= _nmodes:
+                nmodes = _nmodes
+            # prefill/merge trees
+            merge_trees(ev,eigenvalues)
+            for key_ev in ev:
+                for i_mode in range(0,nmodes):
+                    key_mode = i_mode+1
+                    if key_mode not in eigenvalues[key_ev]:
+                        eigenvalues[key_ev].update({key_mode:[]})
+            # read the eigenvalue spectra for all modes line by line
             for line in lines[header:]:
                 row = line.split()
                 row = [float(value) for value in row]
-                for mode in range(0,nmodes):
-                    key_mode = mode + 1
-                    if key_mode not in modes:
-                        modes[key_mode]={}
-                    if 'gamma' not in modes[key_mode]:
-                        modes[key_mode]['gamma']=[]
-                    if row[0+mode*2] != 0:
-                        modes[key_mode]['gamma'].append(row[0+mode*2])
+                for i_mode in range(0,nmodes):
+                    key_mode = i_mode + 1
+                    if row[0+i_mode*2] != 0:
+                        eigenvalues['gamma'][key_mode].append(row[0+i_mode*2])
                     else:
-                        modes[key_mode]['gamma'].append(np.NaN)
-                    if 'omega' not in modes[key_mode]:
-                        modes[key_mode]['omega']=[]
-                    if row[1+mode*2] != 0:
-                        modes[key_mode]['omega'].append(frequency_convention*row[1+mode*2])
+                        eigenvalues['gamma'][key_mode].append(np.NaN)
+                    if row[1+i_mode*2] != 0:
+                        eigenvalues['omega'][key_mode].append(sign_convention*row[1+i_mode*2])
                     else:
-                        modes[key_mode]['omega'].append(np.NaN)
+                        eigenvalues['omega'][key_mode].append(np.NaN)
 
-            modes = list_to_array(modes)
+            eigenvalues = list_to_array(eigenvalues)
             
-            if not self.collect:
-                eigenvalue_spectrum = {'description':description, 'modes':modes, 'nmodes':len(modes)}
+            if self.collect:
+                eigenvalues['sign_convention'] = sign_convention
+            else:
+                eigenvalue_spectrum = {'description':description, 'eigenvalues':eigenvalues, 'nmodes':nmodes, 'sign_convention':sign_convention}
                 return eigenvalue_spectrum
 
     def read_field_spectrum(self,run_path=None,nky=None,nmodes=None):
-        """Read the field fluctuation intensity spectra and store them per mode.
+        """Read the gyro-bohn normalised field fluctuation intensity spectra and store them per mode.
 
         Args:
             run_path (str): path to the output directory of the tglf run. Defaults to None.
@@ -203,7 +211,7 @@ class TGLF(DataSpine):
         Returns:
             dict: contains the file description, the field fluctuation spectra per mode and the number of modes.
         """
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -214,48 +222,54 @@ class TGLF(DataSpine):
         if lines:
             # set file dependent variables
             header = 6
-            fields = {'A':[],
-                      'phi':[],
+            _fields = {'A':{},
+                      'phi':{},
             }
             # check if storing IO in the TGLF object
             if self.collect:
-                if 'modes' not in self.output:
-                    self.output['modes'] = {}
-                modes = self.output['modes']
+                if 'fields' not in self.output:
+                    self.output['fields'] = {}
+                fields = self.output['fields']
             # reader is used standalone
             else:
-                modes = {}
+                fields = {}
             # read the file description
             description = lines[0].strip()
             # read the index limits
             [_nky,_nmodes] = [int(limit) for limit in lines[3].strip().split()]
             if not nky:
                 nky = _nky
-            if not nmodes:
+            if not nmodes or not nmodes <= _nmodes:
                 nmodes = _nmodes
             # check if A_par and B_par and if present add them to the fields dict
             a_par = bool(lines[:header][-2].strip().split('_')[-1])
             b_par = bool(lines[:header][-1].strip().split('_')[-1])
             if a_par:
-                fields.update({'A_par':[]})
+                _fields.update({'A_par':{}})
             if b_par:
-                fields.update({'B_par':[]})
-            # per mode read the field fluctuation amplitude spectrum line by line
-            for mode in range(0,nmodes):
-                key_mode = mode + 1
-                if key_mode not in modes:
-                    modes[key_mode] = {}
-                _fields = copy.deepcopy(fields)
-                for line in lines[header+(mode*_nky):header+(mode*_nky)+nky]:
-                    row = line.split()
+                _fields.update({'B_par':{}})
+            # prefill/merge trees
+            merge_trees(_fields,fields)
+            for key_field in _fields:
+                for i_mode in range(0,nmodes):
+                    key_mode = i_mode+1
+                    if key_mode not in fields[key_field]:
+                        fields[key_field].update({key_mode:[]})
+            
+            for i_mode in range(0,nmodes):
+                #print(lines[header+(i_mode*_nky):header+(i_mode*_nky)+nky])
+                key_mode = i_mode+1
+                # per mode read the field fluctuation amplitude spectrum line by line
+                for i_ky in range(0,nky):
+                    index = header+(i_ky*_nmodes)+i_mode
+                    row = lines[index].strip().split()
                     row = [float(value) for value in row]
-                    for i_key,key in enumerate(_fields.keys()):
-                        _fields[key].append(row[i_key])
-                _fields = list_to_array(_fields)
-                modes[key_mode].update(_fields)
+                    for i_key,key_fields in enumerate(fields.keys()):
+                        fields[key_fields][key_mode].append(row[i_key])
+            list_to_array(fields)
 
             if not self.collect:
-                field_spectrum = {'description':description, 'modes':modes, 'nmodes':nmodes}
+                field_spectrum = {'description':description, 'fields':fields, 'nmodes':nmodes}
                 return field_spectrum
 
     def read_fluctuation_spectrum(self,run_path=None,file=None,symbol=None,nspecies=None):
@@ -268,7 +282,7 @@ class TGLF(DataSpine):
         Returns:
             _type_: _description_
         """
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -328,7 +342,7 @@ class TGLF(DataSpine):
         Returns:
             _type_: _description_
         """
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -381,7 +395,7 @@ class TGLF(DataSpine):
         Returns:
             dict: {'NS':int,'NXGRID':int}
         """
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -406,7 +420,7 @@ class TGLF(DataSpine):
         Returns:
             dict: all TGLF variables set in the input.tglf file as key:value pairs
         """
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -452,7 +466,7 @@ class TGLF(DataSpine):
         Returns:
             dict: all the TGLF input variables used in the run output in input.tglf.gen.
         """
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
     
@@ -488,7 +502,7 @@ class TGLF(DataSpine):
                 return input_gen
 
     def read_intensity_spectrum(self,run_path=None,nmodes=None,nspecies=None,nky=None):
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -551,7 +565,7 @@ class TGLF(DataSpine):
                 return intensity_spectrum
 
     def read_ky_spectrum(self,run_path=None):
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -582,7 +596,7 @@ class TGLF(DataSpine):
                 return ky_spectrum
 
     def read_nete_crossphase_spectrum(self,run_path=None,nmodes=None,nky=None):
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
         
@@ -633,7 +647,7 @@ class TGLF(DataSpine):
                 return nete_crossphase_spectrum
 
     def read_nsts_crossphase_spectrum(self,run_path=None,nspecies=None,nmodes=None,nky=None):
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
         
@@ -703,7 +717,7 @@ class TGLF(DataSpine):
         Returns:
             _type_: _description_
         """
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -718,7 +732,7 @@ class TGLF(DataSpine):
                 return prec
 
     def read_QL_flux_spectrum(self,run_path=None,nspecies=None,nfields=None,nky=None,nmodes=None):
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -783,7 +797,7 @@ class TGLF(DataSpine):
                 return QL_flux_spectrum
 
     def read_run(self,run_path=None):
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -823,7 +837,7 @@ class TGLF(DataSpine):
             return run
 
     def read_sat_geo_spectrum(self,run_path=None,nmodes=None):
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -855,7 +869,7 @@ class TGLF(DataSpine):
             return sat_geo_spectrum
 
     def read_scalar_saturation_parameters(self,run_path=None):
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -884,7 +898,7 @@ class TGLF(DataSpine):
             return scalar_sat_params
 
     def read_spectral_shift(self,run_path=None):
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -907,7 +921,7 @@ class TGLF(DataSpine):
             return spectral_shift
 
     def read_sum_flux_spectrum(self,run_path=None,nspecies=1,nfields=1):
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -978,7 +992,7 @@ class TGLF(DataSpine):
         self.read_fluctuation_spectrum(run_path=run_path,file='out.tglf.temperature_spectrum',symbol='T',nspecies=nspecies)
 
     def read_version(self,run_path=None):
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -1000,7 +1014,7 @@ class TGLF(DataSpine):
             return version
 
     def read_wavefunction(self,run_path=None,nmodes=None):
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -1042,7 +1056,7 @@ class TGLF(DataSpine):
             return field_spectrum
 
     def read_width_spectrum(self,run_path=None):
-        # if unspecified, for convenience check for output path in metadata
+        # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
@@ -1065,6 +1079,10 @@ class TGLF(DataSpine):
             return width_spectrum
 
     def write_input(self,path=None,file='input.tglf',header=True,verbose=False,ignore_defaults=True,overwrite=True):
+        # if unspecified, for convenience check for run path in metadata
+        if not path and 'run_path' in self.metadata:
+            path = self.metadata['run_path']
+        
         header_list = [
             'input.tglf',
             'See https://gafusion.github.io/doc/tglf/tglf_table.html',
@@ -1292,19 +1310,61 @@ class TGLF(DataSpine):
         return
     
     # plotting functions
+    def plot_eigenvalue_spectra(self,run_path=None,modes=[1],figures=[None,None],labels=[None,None],show=True,save=False,files=[None,None]):
+        if run_path and not self.output:
+            self.collect_output(run_path=run_path)
+
+        if 'eigenvalues' in self.output:
+            self.plot_gamma_spectrum(run_path=run_path,modes=modes,figure=figures[0],label=labels[0],show=False,save=save,file=files[0])
+            self.plot_omega_spectrum(run_path=run_path,modes=modes,figure=figures[1],label=labels[1],show=show,save=save,file=files[1])
+
+    def plot_field_spectra(self,run_path=None,modes=[1],figure=None,label=None,markers=[],show=True,save=False,file=None):
+        if run_path and not self.output:
+            self.collect_output(run_path=run_path)
+
+        if 'fields' in self.output:
+            fields = self.output['fields']
+            ky = self.output['ky']
+        
+            if figure:
+                plt.figure(figure)
+            else:
+                plt.figure()
+            
+            if not markers:
+                markers = ['o','.','s','^']
+            
+            for key_mode in modes:
+                for key_field in fields.keys():
+                    i_field = list(fields.keys()).index(key_field)
+                    if label:
+                        label_ = label + ', {}'.format(key_field)
+                    else:
+                        label_ = key_field
+                    if modes[-1] > 1:
+                        label_ += ', {}'.format()
+                    plt.plot(ky,fields[key_field][key_mode],'{}-'.format(markers[i_field]),label=label_)
+            plt.xlabel('ky')
+            plt.ylim(bottom=0.)
+            plt.legend()
+                
+            if show:
+                plt.show()
+
+
     def _plot_flux_spectrum():
         """Plot the particle flux, energy flux, toroidal stress, parallel stress, exchange spectra output by `read_sum_flux_spectrum()`.
         """
         return
 
-    def plot_gamma_spectrum(self,run_path=None,modes=[1],figure=None,legend=None,show=False,save=False,file=None):
+    def plot_gamma_spectrum(self,run_path=None,modes=[1],figure=None,label=None,show=True,save=False,file=None):
         """Plot the growth rate (gamma) spectrum as a function of ky, as output by `read_eigenvalue_spectrum()`.
 
         Args:
             run_path (_type_, optional): _description_. Defaults to None.
             modes (list, optional): _description_. Defaults to [1].
             figure (_type_, optional): _description_. Defaults to None.
-            legend (_type_, optional): _description_. Defaults to None.
+            label (_type_, optional): _description_. Defaults to None.
             show (bool, optional): _description_. Defaults to False.
             save (bool, optional): _description_. Defaults to False.
             file (_type_, optional): _description_. Defaults to None.
@@ -1312,37 +1372,43 @@ class TGLF(DataSpine):
         if run_path and not self.output:
             self.collect_output(run_path=run_path)
         
-        ky_list = self.output['ky']
-        gamma_list = []
+        if 'eigenvalues' in self.output:
+            eigenvalues = self.output['eigenvalues']
+            ky = self.output['ky']
+            gamma = eigenvalues['gamma']
 
-        for mode in modes:
-            for ky in ky_list:
-                gamma_list.append(self.output['modes'][mode]['gamma'][ky])
+            if not modes:
+                modes = list(gamma.keys())
+                
+            if figure:
+                plt.figure(figure)
+            else:
+                plt.figure()
+            for key_mode in modes:
+                if modes[-1] > 1 and label:
+                    label_ = label + ', mode {}'.format(key_mode)
+                else:
+                    label_ = label
+                plt.plot(ky,gamma[key_mode],'.-',label=label_)
+            plt.xlabel('ky')
+            plt.ylabel('$\\gamma$ [cs/a]')
+            plt.ylim(bottom=0.)
+            if label:
+                plt.legend()
             
-        if figure:
-            plt.figure(figure)
-        else:
-            plt.figure()
-        plt.plot(ky_list,gamma_list,'.-',label=legend)
-        plt.xlabel('ky')
-        plt.ylabel('$\\gamma$ [cs/a]')
-        if legend:
-            plt.legend()
-        
-        if show:
-            plt.show()
-        
-        return
-    
-    def plot_omega_spectrum(self,run_path=None,modes=[1],figure=None,legend=None,show=False,save=False,file=None):
+            if show:
+                plt.show()
+
+    def plot_omega_spectrum(self,run_path=None,modes=[1],figure=None,label=None,align='right',show=True,save=False,file=None):
         """Plot the frequency (omega) spectrum as a function of ky, as output by `read_eigenvalue_spectrum()`.
         NOTE: this plotting routine plots the frequency using the frequency direction convention as specified during reading!
 
         Args:
             run_path (_type_, optional): _description_. Defaults to None.
+            sign (int, optional): _description_. Defaults to -1.
             modes (list, optional): _description_. Defaults to [1].
             figure (_type_, optional): _description_. Defaults to None.
-            legend (_type_, optional): _description_. Defaults to None.
+            label (_type_, optional): _description_. Defaults to None.
             show (bool, optional): _description_. Defaults to False.
             save (bool, optional): _description_. Defaults to False.
             file (_type_, optional): _description_. Defaults to None.
@@ -1350,35 +1416,53 @@ class TGLF(DataSpine):
         if run_path and not self.output:
             self.collect_output(run_path=run_path)
         
-        ky_list = self.output['ky']
-        omega_list = []
+        if 'eigenvalues' in self.output:
+            eigenvalues = self.output['eigenvalues']
+            sign_convention = eigenvalues['sign_convention']
+            sign_labels = ['ion','electron']
+            if not sign_convention < 0:
+                sign_labels = list(reversed(sign_labels))
+            align_x = 0.985
+            if align != 'right':
+                align_x = 0.015
+            ky = self.output['ky']
+            omega = eigenvalues['omega']
+            mono = {'size':9,'weight':'bold'}
 
-        for mode in modes:
-            for ky in ky_list:
-                omega_list.append(self.output['modes'][mode]['omega'][ky])
+            if not modes:
+                modes = list(omega.keys())
             
-        if figure:
-            plt.figure(figure)
-        else:
-            plt.figure()
-        plt.plot(ky_list,omega_list,'.-',label=legend)
-        plt.xlabel('ky')
-        plt.ylabel('$\\omega$ [cs/a]')
-        if sign(min(omega_list)) != sign(max(omega_list)):
-            plt.axhline(0,linewidth=0.75,color='black')
-        
-        if legend:
-            plt.legend()
-        
-        if show:
-            plt.show()
-        
-        if save:
-            plt.savefig('{}.pdf'.format(run_path+file),format='pdf')
+            axline = False
+            if figure:
+                plt.figure(figure)
+            else:
+                plt.figure()
+            for key_mode in modes:
+                if modes[-1] > 1 and label:
+                    label_ = label + ', mode {}'.format(key_mode)
+                else:
+                    label_ = label
+                plt.plot(ky,omega[key_mode],'.-',label=label_)
+                if sign(min(omega[key_mode])) != sign(max(omega[key_mode])) and not axline:
+                    plt.axhline(0,linewidth=0.75,color='black')
+                    axline = True
+                    ax = plt.gca()
+                    y_lims = ax.get_ylim()
+                    align_y = np.abs(y_lims[0])/np.sum(np.abs(np.array(y_lims)))
+                    if align_y <= 0.94:
+                        plt.text(align_x,align_y+0.015,sign_labels[0],ha=align,va='bottom',fontdict=mono,transform=ax.transAxes)
+                    if align_y >= 0.05:
+                        plt.text(align_x,align_y-0.015,sign_labels[1],ha=align,va='top',fontdict=mono,transform=ax.transAxes)
+            plt.xlabel('ky')
+            plt.ylabel('$\\omega$ [cs/a]')
+            
+            if label:
+                plt.legend()
 
-        return
+            if show:
+                plt.show()
 
-    def _plot_wavefunctions(self,run_path=None,nfields=1):
+    def _plot_wavefunction(self,run_path=None,nfields=1):
         """Plot the wavefunctions as a function of ballooning angle for the specified number of fields, as output by `read_wavefunction()`.
 
         Args:
