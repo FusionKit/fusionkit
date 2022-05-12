@@ -6,6 +6,7 @@ A collection of general numerical or Python utilities useful across the framewor
 
 import numpy as np
 import os
+import copy
 
 def number(x):
     """Check if x is actually a (real) number type (int,float).
@@ -133,10 +134,15 @@ def list_to_array(object):
     elif isinstance(object,list):
         # check if any value in the list is a str
         str_check = [isinstance(value,str) for value in object]
+        array_check = [isinstance(value,float) for value in object]
         # if not any strings in the list convert to ndarray
-        if not any(str_check):
+        if all(array_check) and not any(str_check):
             #print('converting list to array...')
             object = np.array(object)
+        elif 'list-of-arrays' in object:
+            object.remove('list-of-arrays')
+            for index in range(0,len(object)):
+                object[index] = np.array(object[index])
 
     return object
 
@@ -150,12 +156,37 @@ def array_to_list(object):
     Returns:
         list,dict: the object containing the converted lists
     """
-    if isinstance(object,dict):
+    if isinstance(object,np.ndarray):
+        #print('converting array to list...')
+        object = object.tolist()
+    elif isinstance(object,dict):
         #print('found dict instead of array, rerouting...')
         for key in object.keys():
             object[key] = array_to_list(object[key])
-    elif isinstance(object,np.ndarray):
-        #print('converting array to list...')
-        object = list(object)
+    elif isinstance(object,list):
+        list_of_arrays = False
+        for index in range(0,len(object)):
+            if isinstance(object[index],np.ndarray):
+                list_of_arrays = True
+                object[index] = object[index].tolist()
+        if list_of_arrays:     
+            object.append('list-of-arrays')
     
     return object
+
+def public_attributes(object):
+    """Return (only!) the public attributes of an object.
+    """
+    return [key for key in vars(object).keys() if not (key.startswith('_') or callable(key))]
+
+def merge_trees(source,target):
+    if isinstance(source,dict) and isinstance(target,dict):
+        for key in source.keys():
+            if key not in target.keys():
+                target.update({key:copy.deepcopy(source[key])})
+            elif isinstance(source[key],dict):
+                merge_trees(source[key],target[key])
+    if isinstance(source,list) and isinstance(target,dict):
+        for key in source:
+            if key not in target.keys():
+                target.update({key:[]})
