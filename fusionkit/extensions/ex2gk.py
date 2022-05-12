@@ -85,6 +85,10 @@ class EX2GK:
             #print(gpr_data)
             if 'TIMP' in gpr_data:
                 gpr_data['TI'] = gpr_data.pop('TIMP')
+            elif 'TI1' in gpr_data:
+                gpr_data['TI'] = gpr_data.pop('TI1')
+            elif 'ATI1' in gpr_data:
+                gpr_data['ATI'] = gpr_data.pop('ATI1')
             return gpr_data
         
         else:
