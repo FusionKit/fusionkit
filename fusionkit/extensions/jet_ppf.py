@@ -69,6 +69,7 @@ class JET_PPF:
     
     def read_profilemaker(data_loc=None, shot=None, time_start=None,time_end=None, return_yest=False):
         quantities = []
+        time = []
         raw_data = {}
         fit_data = {}
 
@@ -77,12 +78,14 @@ class JET_PPF:
             # Filter for the files 
             if shot in fname and '_Data' in fname:
                 ftime = ((fname.split('-')[-1]).split('.csv')[0]).split('s')[0]
+                time.append(ftime)
                 if float(ftime) <= time_end and float(ftime)>= time_start:
                     #print(fname)
                     # Generate the list with quantities for which there is profile maker data in data_loc
                     quantity = fname.split('_Data')[0]
                     if quantity == 'T_PL':
                         quantity = 'T_I'
+                    quantity = quantity.replace('_','')
                     if quantity not in quantities:
                         #print(quantity)
                         quantities.append(quantity)
@@ -97,6 +100,8 @@ class JET_PPF:
                         raw_data[quantity][source].append(df[df['diagnostic']==source].sort_values('x').reset_index(drop=True))
                     fit_data[quantity].append(df[['x','y_estimated']])
         #print("\t Added custom data for: "+quantity)
+        raw_data.update({'time':time})
+
         if return_yest:
             return raw_data, sorted(quantities), fit_data
         else:
