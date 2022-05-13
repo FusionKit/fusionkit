@@ -26,7 +26,7 @@ class TGLF(DataSpine):
         DataSpine.__init__(self)
         self.input = {}
         self.output = {}
-        self.collect = False
+        self.collect = True
         self._species_vector = {
             'ZS':None,
             'MASS':None,
@@ -196,6 +196,7 @@ class TGLF(DataSpine):
             
             if self.collect:
                 eigenvalues['sign_convention'] = sign_convention
+                merge_trees({'nmodes':nmodes},self.metadata)
             else:
                 eigenvalue_spectrum = {'description':description, 'eigenvalues':eigenvalues, 'nmodes':nmodes, 'sign_convention':sign_convention}
                 return eigenvalue_spectrum
@@ -222,9 +223,7 @@ class TGLF(DataSpine):
         if lines:
             # set file dependent variables
             header = 6
-            _fields = {'A':{},
-                      'phi':{},
-            }
+            _fields = {'A':{}, 'phi':{},}
             # check if storing IO in the TGLF object
             if self.collect:
                 if 'fields' not in self.output:
@@ -264,11 +263,13 @@ class TGLF(DataSpine):
                     index = header+(i_ky*_nmodes)+i_mode
                     row = lines[index].strip().split()
                     row = [float(value) for value in row]
-                    for i_key,key_fields in enumerate(fields.keys()):
-                        fields[key_fields][key_mode].append(row[i_key])
+                    for i_field,key_field in enumerate(fields.keys()):
+                        fields[key_field][key_mode].append(row[i_field])
             list_to_array(fields)
 
-            if not self.collect:
+            if self.collect:
+                merge_trees({'nmodes':nmodes},self.metadata)
+            else:
                 field_spectrum = {'description':description, 'fields':fields, 'nmodes':nmodes}
                 return field_spectrum
 
@@ -292,7 +293,7 @@ class TGLF(DataSpine):
         if lines:
             # set file dependent variables
             header = 2
-            fluctuations = {'fluctuations':{'amplitude':{symbol:[]}}}
+            _fluctuations = {'fluctuations':{'amplitude':{symbol:[]}}}
             # check if storing IO in the TGLF object
             if self.collect:
                 if 'species' not in self.output:
@@ -307,29 +308,25 @@ class TGLF(DataSpine):
             _nspecies = len(lines[header].strip().split())
             if not nspecies or not nspecies <= _nspecies:
                 nspecies = _nspecies
-            for i_species in range(0,nspecies):
-                key_species = i_species+1
-                if key_species not in species:
-                    species[key_species]=copy.deepcopy(fluctuations)
-                #elif symbol not in species[key_species]['fluctuations']['amplitude']:
-                #    species[key_species]['fluctuations']['amplitude'][symbol] = []
-                else:
-                    merge_trees(fluctuations,species[key_species])
-
-            #print(species)
             # read the fluctuation amplitude spectrum for each species line by line
             for line in lines[header:]:
                 row = line.strip().split()
                 row = [float(value) for value in row]
                 for i_species in range(0,nspecies):
-                    #print(i_species)
-                    species[i_species+1]['fluctuations']['amplitude'][symbol].append(row[i_species])
+                    key_species = i_species+1
+                    if key_species not in species:
+                        species[key_species]={}
+                    merge_trees(_fluctuations,species[key_species])
+                    fluctuations = species[key_species]['fluctuations']['amplitude']
+                    fluctuations[symbol].append(row[i_species])
 
-            for key_species in range(1,nspecies+1):
-                species[key_species]['fluctuations']['amplitude'][symbol] = list_to_array(species[key_species]['fluctuations']['amplitude'][symbol])
+            for key_species in species.keys():
+                list_to_array(species[key_species]['fluctuations']['amplitude'])
 
-            if not self.collect:
-                fluctuation_spectrum = {'description':description, 'species':species}
+            if self.collect:
+                merge_trees({'nspecies':nspecies},self.metadata)
+            else:
+                fluctuation_spectrum = {'description':description, 'species':species, 'nspecies':nspecies}
                 return fluctuation_spectrum
 
     def read_gbflux(self,run_path=None,nspecies=None):
@@ -361,29 +358,28 @@ class TGLF(DataSpine):
             # reader is used standalone
             else:
                 species = {}
-            fluxes = {'Gamma':{'total':0.},
-                      'Q':{'total':0.},
-                      'Pi':{'total':0.},
-                      'S':{'total':0.}
-            }
+            _fluxes = {'fluxes':{'Gamma':{'total':0.}, 'Q':{'total':0.}, 'Pi':{'total':0.}, 'S':{'total':0.}}}
             # convert the line of values into a list of floats
             fluxes_list = [float(value) for value in lines[0].split()]
-            _nspecies = int(len(fluxes_list)/len(list(fluxes.keys())))
+            _nspecies = int(len(fluxes_list)/len(list(_fluxes['fluxes'].keys())))
             if not nspecies or not nspecies <= _nspecies:
                 nspecies = _nspecies
 
-            for key in range(0,nspecies):
-                key_species = key+1
+            for i_species in range(0,nspecies):
+                key_species = i_species+1
                 if key_species not in species:
-                    species.update({key_species:copy.deepcopy(fluxes)})
-                for i_flux,key_flux in enumerate(list(fluxes.keys())):
-                    if key_flux not in species[key_species]:
-                        species[key_species][key_flux]['total'] = 0.
-                    species[key_species][key_flux]['total'] = ((fluxes_list[i_flux*_nspecies:(i_flux+1)*_nspecies])[:nspecies])[key]
+                    species.update({key_species:copy.deepcopy(_fluxes)})
+                else:
+                    merge_trees(_fluxes,species[key_species])
+                fluxes = species[key_species]['fluxes']
+                for i_flux,key_flux in enumerate(_fluxes['fluxes'].keys()):
+                    fluxes[key_flux]['total'] = ((fluxes_list[i_flux*_nspecies:(i_flux+1)*_nspecies])[:nspecies])[i_species]
 
-            if not self.collect:
+            if self.collect:
+                merge_trees({'nspecies':nspecies},self.metadata)
+            else:
                 gbfluxes = {'description':'gyro-bohm normalized fluxes summed over mode number and ky spectrum', 
-                            'species':species}
+                            'species':species, 'nspecies':nspecies}
                 return gbfluxes
 
     def read_grid(self,run_path=None):
@@ -393,7 +389,7 @@ class TGLF(DataSpine):
             run_path (str): path to the output directory of the tglf run. Defaults to None.
 
         Returns:
-            dict: {'NS':int,'NXGRID':int}
+            dict: {'nspecies':int,'nxgrid':int}
         """
         # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
@@ -403,14 +399,17 @@ class TGLF(DataSpine):
         lines = read_file(path=run_path,file='out.tglf.grid')
 
         if lines:
-            nspecies = lines[0].strip()
-            nxgrid = lines[1].strip()
+            nspecies = autotype(lines[0].strip())
+            nxgrid = autotype(lines[1].strip())
 
-            grid = {'NS':nspecies, 'NXGRID':nxgrid}
+            grid = {'nspecies':nspecies, 'nxgrid':nxgrid}
 
-            return grid
+            if self.collect:
+                merge_trees(grid,self.metadata)
+            else:
+                return grid
 
-    def read_input(self,run_path=None,file='input.tglf'):
+    def read_input(self,run_path=None,file='input.tglf',overwrite=False):
         """Read the TGLF inputs from the specified run folder.
 
         Args:
@@ -430,7 +429,15 @@ class TGLF(DataSpine):
         # if the file was successfully read
         if lines:
             # set file dependent variables
-            input = {}
+            description = ''
+            # check if storing IO in the TGLF object
+            if self.collect:
+                if self.input and overwrite:
+                    self.input = {}
+                input = self.input
+            # reader is used standalone
+            else:
+                input = {}
             # go line by line
             for line in lines:
                 # check it is not a header line
@@ -439,6 +446,7 @@ class TGLF(DataSpine):
                     key = line[0].strip()
                     value = line[1].strip()
                     # type the values, not using autotype to keep bool values in Fortran format
+                    # TODO: change write_input to convert bools to Fortran form and switch to autotype
                     try:
                         value = int(value)
                     except:
@@ -446,15 +454,14 @@ class TGLF(DataSpine):
                             value = float(value)
                         except:
                             value = str(value)
-                    
-                    # check if storing IO in the TGLF object
-                    if self.collect:
-                        self.input.update({key:value})
-                    # reader is used standalone
-                    else:
-                        input.update({key:value})
+
+                    input.update({key:value})
+                else:
+                    line = line.strip().split('#')[1]
+                    description += ', '+line
 
             if not self.collect:
+                input.update({'description':description})
                 return input
 
     def read_input_gen(self,run_path=None):
@@ -478,6 +485,7 @@ class TGLF(DataSpine):
             # set file dependent variables
             if self.collect:
                 self.output['input_gen'] = {}
+                input_gen = self.output['input_gen']
             else:
                 input_gen = {}
             # convert input.tglf.gen line by line into key:value pairs
@@ -492,10 +500,8 @@ class TGLF(DataSpine):
                         value = float(value)
                     except:
                         value = str(value)
-                if self.collect:
-                    self.output['input_gen'].update({key:value})
-                else:
-                    input_gen.update({key:value})
+                
+                input_gen.update({key:value})
         
             # if standalone reader use
             if not self.collect:
@@ -512,11 +518,7 @@ class TGLF(DataSpine):
         if lines:
             # set file dependent variables
             header = 4
-            fluctuations = {'n':[],
-                            'T':[],
-                            'v_par':[],
-                            'E_par':[]
-            }
+            _fluctuations = {'fluctuations':{'intensity':{'n':{}, 'T':{}, 'v_par':{}, 'E_par':{}}}}
             # check if storing IO in the TGLF object
             if self.collect:
                 if 'species' not in self.output:
@@ -537,30 +539,27 @@ class TGLF(DataSpine):
             if not nmodes or not nmodes <= _nmodes:
                 nmodes = _nmodes
             # per mode, per species read the field fluctuation amplitude spectrum line by line
-            for _species in range(0,nspecies):
-                key_species = _species + 1
+            for i_species in range(0,nspecies):
+                key_species = i_species + 1
                 if key_species not in species:
                     species[key_species] = {}
-                if 'modes' not in species[key_species]:
-                    species[key_species]['modes'] = {}
-                modes = species[key_species]['modes']
-                for mode in range(0,nmodes):
-                    key_mode = mode + 1
-                    if key_mode not in modes:
-                        modes[key_mode] = {}
-                    if 'fluctuation_intensity' not in modes[key_mode]:
-                        modes[key_mode]['fluctuation_intensity'] = {}
-                    _fluctuations = copy.deepcopy(fluctuations)
-                    for ky in range(0,nky):
-                        index = header+(_species*_nmodes*_nky)+(ky*_nmodes)+mode
+                merge_trees(_fluctuations,species[key_species])
+                fluctuations = species[key_species]['fluctuations']['intensity']
+                for i_mode in range(0,nmodes):
+                    key_mode = i_mode + 1
+                    for i_ky in range(0,nky):
+                        index = header+(i_species*_nmodes*_nky)+(i_ky*_nmodes)+i_mode
                         row = lines[index].strip().split()
                         row = [float(value) for value in row]
-                        for i_key,key in enumerate(_fluctuations.keys()):
-                            _fluctuations[key].append(row[i_key])
-                    _fluctuations = list_to_array(_fluctuations)
-                    modes[key_mode].update({'fluctuation_intensity':_fluctuations})
+                        for i_fluctuation,key_fluctuation in enumerate(_fluctuations['fluctuations']['intensity'].keys()):
+                            if key_mode not in fluctuations[key_fluctuation]:
+                                fluctuations[key_fluctuation].update({key_mode:[]})
+                            fluctuations[key_fluctuation][key_mode].append(row[i_fluctuation])
+                list_to_array(fluctuations)
             
-            if not self.collect:
+            if self.collect:
+                merge_trees({'nspecies':nspecies, 'nky':nky, 'nmodes':nmodes},self.metadata)
+            else:
                 intensity_spectrum = {'description':description, 'species':species, 'nspecies':nspecies, 'nky':nky, 'nmodes':nmodes}
                 return intensity_spectrum
 
@@ -576,22 +575,18 @@ class TGLF(DataSpine):
         if lines:
             # set file dependent variables
             header = 2
-            if self.collect:
-                if 'ky' not in self.output:
-                    self.output['ky'] = []
-                ky_list = self.output['ky']
-            else:
-                ky_list = []
+            ky_list = []
             # get the number of ky in the spectrum and then read the spectrum into a list
             for i_line,line in enumerate(lines):
                 if i_line == 1:
                     nky = int(line.strip())
                 if header <= i_line <= nky+header:
                     ky_list.append(float(line.strip()))
-            
-            list_to_array(ky_list)
         
-            if not self.collect:
+            if self.collect:
+                merge_trees({'nky':nky},self.metadata)
+                self.output['ky'] = list_to_array(ky_list)
+            else:
                 ky_spectrum = {'nky':nky, 'ky':ky_list}
                 return ky_spectrum
 
@@ -607,6 +602,7 @@ class TGLF(DataSpine):
             # set file dependent variables
             header = 2
             key_species = 1 # since this is nete cross phase spectrum
+            _crossphase = {'nt_cross_phase':{}}
             # check if storing IO in the TGLF object
             if self.collect:
                 if 'species' not in self.output:
@@ -625,25 +621,24 @@ class TGLF(DataSpine):
                 nky = _nky
             if key_species not in species:
                 species[key_species] = {}
-            if 'modes' not in species[key_species]:
-                    species[key_species]['modes'] = {}
-            modes = species[key_species]['modes']
-            for ky in range(0,nky):
-                index = header + ky
+            merge_trees(_crossphase,species[key_species])
+            crossphase = species[key_species]['nt_cross_phase']
+            for i_ky in range(0,nky):
+                index = header + i_ky
                 row = lines[index].strip().split()
                 row = [float(value) for value in row]
-                for mode in range(0,nmodes):
-                    key_mode = mode + 1
-                    if key_mode not in modes:
-                        modes[key_mode] = {}
-                    if 'nt_cross_phase' not in modes[key_mode]:
-                        modes[key_mode].update({'nt_cross_phase':[]})
-                    modes[key_mode]['nt_cross_phase'].append(row[mode])
+                for i_mode in range(0,nmodes):
+                    key_mode = i_mode + 1
+                    if key_mode not in crossphase:
+                        crossphase[key_mode] = []
+                    crossphase[key_mode].append(row[i_mode])
             
-            modes = list_to_array(modes)
+            list_to_array(crossphase)
 
-            if not self.collect:
-                nete_crossphase_spectrum = {'description':description, 'modes':modes, 'nmodes':nmodes, 'nky':nky}
+            if self.collect:
+                merge_trees({'nmodes':nmodes, 'nky':nky},self.metadata)
+            else:
+                nete_crossphase_spectrum = {'description':description, 'species':species, 'nmodes':nmodes, 'nky':nky}
                 return nete_crossphase_spectrum
 
     def read_nsts_crossphase_spectrum(self,run_path=None,nspecies=None,nmodes=None,nky=None):
@@ -658,6 +653,7 @@ class TGLF(DataSpine):
             # set file dependent variables
             header = 1
             header_species = 2
+            _crossphase = {'nt_cross_phase':{}}
             # check if storing IO in the TGLF object
             if self.collect:
                 if 'species' not in self.output:
@@ -684,9 +680,8 @@ class TGLF(DataSpine):
                     key_species = int(row[-1])
                     if key_species not in species:
                         species[key_species] = {}
-                    if 'modes' not in species[key_species]:
-                        species[key_species]['modes'] = {}
-                    modes = species[key_species]['modes']
+                    merge_trees(_crossphase,species[key_species])
+                    crossphase = species[key_species]['nt_cross_phase']
                 elif '(nsts_phase_spectrum_out' in row[0].split(','):
                     if 'nsts_phase_spectrum_out' not in description:
                         description += ', '+''.join(row)
@@ -694,17 +689,18 @@ class TGLF(DataSpine):
                     line_lb = (key_species*header_species)+((key_species-1)*_nky)-1
                     if  line_lb < i_line <= line_lb+nky:
                         row = [float(value) for value in row]
-                        for mode in range(0,nmodes):
-                            key_mode = mode + 1
-                            if key_mode not in modes:
-                                modes[key_mode] = {}
-                            if 'nt_cross_phase' not in modes[key_mode]:
-                                modes[key_mode].update({'nt_cross_phase':[]})
-                            modes[key_mode]['nt_cross_phase'].append(row[mode])
+                        for i_mode in range(0,nmodes):
+                            key_mode = i_mode + 1
+                            if key_mode not in crossphase:
+                                crossphase[key_mode] = []
+                            crossphase[key_mode].append(row[i_mode])
 
-            modes = list_to_array(modes)
+            for key_species in species.keys():
+                list_to_array(species[key_species]['nt_cross_phase'])
 
-            if not self.collect:
+            if self.collect:
+                merge_trees({'nmodes':nmodes, 'nky':nky},self.metadata)
+            else:
                 nsts_crossphase_spectrum = {'description':description, 'species':species, 'nmodes':nmodes, 'nky':nky}
                 return nsts_crossphase_spectrum
 
@@ -770,7 +766,7 @@ class TGLF(DataSpine):
                 if 'species' in row:
                     key_species = int(row[2])
                     if key_species not in species:
-                        species.update({key_species:copy.deepcopy(weights)})
+                        species[key_species] = {}
                     merge_trees(weights,species[key_species])
                     ql_weigths = species[key_species]['QL_weights']
                     i_field = int(row[-1])
@@ -778,22 +774,24 @@ class TGLF(DataSpine):
                         if key_flux not in ql_weigths:
                             ql_weigths[key_flux] = {}
                         if fields[i_field-1] not in ql_weigths[key_flux]:
-                            ql_weigths[key_flux].update({fields[i_field-1]:['list-of-arrays']})
+                            ql_weigths[key_flux][fields[i_field-1]] = {}
                 elif 'mode' in row:
-                    i_mode = int(row[-1])
+                    key_mode = int(row[-1])
                 else:
                     row = [float(value) for value in row]
                     for i_flux,key_flux in enumerate(weights['QL_weights'].keys()):
-                        if i_mode+1 > len(ql_weigths[key_flux][fields[i_field-1]]):
-                            ql_weigths[key_flux][fields[i_field-1]].append([])    
-                        ql_weigths[key_flux][fields[i_field-1]][i_mode].append(row[i_flux])
+                        if key_mode not in ql_weigths[key_flux][fields[i_field-1]]:
+                            ql_weigths[key_flux][fields[i_field-1]][key_mode] = []   
+                        ql_weigths[key_flux][fields[i_field-1]][key_mode].append(row[i_flux])
             
-            for key_species in species:
-                for key_flux in weights['QL_weights']:
-                    list_to_array(species[key_species]['QL_weights'][key_flux])
+            for key_species in species.keys():
+                list_to_array(species[key_species]['QL_weights'])
 
-            if not self.collect:
-                QL_flux_spectrum = {'description':description, 'species':species, 'nfields':nfields, 'nmodes':nmodes}
+            if self.collect:
+                merge_trees({'nspecies':nspecies ,'nfields':nfields, 'nmodes':nmodes, 'nky':nky},self.metadata)
+            else:
+                QL_flux_spectrum = {'description':description, 'species':species, 
+                                    'nspecies':nspecies ,'nfields':nfields, 'nmodes':nmodes, 'nky':nky}
                 return QL_flux_spectrum
 
     def read_run(self,run_path=None):
@@ -844,29 +842,36 @@ class TGLF(DataSpine):
         # read the out.tglf.sat_geo_spectrum file
         lines = read_file(path=run_path,file='out.tglf.sat_geo_spectrum')
 
-        # set file dependent variables
-        header = 3
-        modes = {}
-
         if lines:
+            # set file dependent variables
+            header = 3
+            if self.collect:
+                if 'sat_geo' not in self.output:
+                    self.output['sat_geo'] = {}
+                sat_geo = self.output['sat_geo']
+            else:
+                sat_geo = {}
             description = lines[0].strip()
             # get/set the number modes
             _nmodes = int(lines[header-1].strip()[-1])
-            if not nmodes:
+            if not nmodes or not nmodes <= _nmodes:
                 nmodes = _nmodes
             # read the values row by row
             for line in lines[header:]:
                 row = line.strip().split()
 
-                for mode in range(0,nmodes):
-                    key_mode = mode + 1
-                    if key_mode not in modes:
-                        modes[key_mode] = {'sat_geo':[]}
-                    modes[key_mode]['sat_geo'].append(float(row[mode]))
+                for i_mode in range(0,nmodes):
+                    key_mode = i_mode + 1
+                    if key_mode not in sat_geo:
+                        sat_geo[key_mode] = []
+                    sat_geo[key_mode].append(float(row[i_mode]))
+            list_to_array(sat_geo)
             
-            sat_geo_spectrum = {'description':description, 'modes':list_to_array(modes)}
-
-            return sat_geo_spectrum
+            if self.collect:
+                merge_trees({'nmodes':nmodes},self.metadata)
+            else:
+                sat_geo_spectrum = {'description':description, 'sat_geo':sat_geo,'nmodes':nmodes}
+                return sat_geo_spectrum
 
     def read_scalar_saturation_parameters(self,run_path=None):
         # if unspecified, for convenience check for run path in metadata
@@ -876,13 +881,16 @@ class TGLF(DataSpine):
         # read the out.tglf.scalar_saturation_parameters file
         lines = read_file(path=run_path,file='out.tglf.scalar_saturation_parameters')
 
-        # set file dependent variables
-        header = 2
-        scalar_sat_params = {}
-
         if lines:
+            # set file dependent variables
+            header = 2
+            if self.collect:
+                if 'sat_scalar_params' not in self.output:
+                    self.output['sat_scalar_params'] = {}
+                scalar_sat_params = self.output['sat_scalar_params']
+            else:
+                scalar_sat_params = {}
             description = lines[0].strip()
-            scalar_sat_params.update({'description':description})
             # go line by line
             for i_line,line in enumerate(lines[header:]):
                 row = line.strip().split()
@@ -895,7 +903,9 @@ class TGLF(DataSpine):
                         # automatically sort and collect all the values
                         scalar_sat_params.update({value:next_row[i_value]})
 
-            return scalar_sat_params
+            if not self.collect:
+                scalar_sat_params.update({'description':description})
+                return scalar_sat_params
 
     def read_spectral_shift(self,run_path=None):
         # if unspecified, for convenience check for run path in metadata
@@ -905,22 +915,26 @@ class TGLF(DataSpine):
         # read the out.tglf.spectral_shift file
         lines = read_file(path=run_path,file='out.tglf.spectral_shift')
 
-        # set file dependent variables
-        header = 5
-        shift_list = []
-
         # if the file was successfully read
         if lines:
+            # set file dependent variables
+            header = 5
+            shift_list = []
+
             description = lines[0].strip() + ', ' + ' '.join([line.strip() for line in lines[1:header-2]])
             # read the spectrum into a list
             for line in lines[header:]:
                 shift_list.append(float(line.strip()))
         
-            spectral_shift = {'description':description, 'spectral_shift':list_to_array(shift_list)}
+            spectral_shift = {'spectral_shift':list_to_array(shift_list)}
         
-            return spectral_shift
+            if self.collect:
+                merge_trees(spectral_shift,self.output)
+            else:
+                spectral_shift.update({'description':description})
+                return spectral_shift
 
-    def read_sum_flux_spectrum(self,run_path=None,nspecies=1,nfields=1):
+    def read_sum_flux_spectrum(self,run_path=None,nspecies=None,nfields=None):
         # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
@@ -930,7 +944,6 @@ class TGLF(DataSpine):
 
         # if the file was successfully read
         if lines:
-            # set file dependent variables
             # check if storing IO in the TGLF object
             if self.collect:
                 if 'species' not in self.output:
@@ -939,54 +952,55 @@ class TGLF(DataSpine):
             # reader is used standalone
             else:
                 species = {}
-            fluxes = {'Gamma':{},
-                      'Q':{},
-                      'Pi_tor':{},
-                      'Pi_par':{},
-                      'S':{}
-            }
-            fields = ['phi','Bper','Bpar']
+            _fluxes = {'fluxes':{'Gamma':{}, 'Q':{}, 'Pi_tor':{}, 'Pi_par':{}, 'S':{}}}
+            _fields = ['phi','Bper','Bpar']
             # go line by line
             for line in lines:
                 row = line.strip().split()
                 # check if the line is a header line
                 if 'species' in row:
                     key_species = int(row[2])
-                    if key_species not in species:
-                        species.update({key_species:copy.deepcopy(fluxes)})
-                    i_field = int(row[-1])
-                    for key_flux in fluxes.keys():
-                        if key_flux not in species[key_species]:
-                            species[key_species][key_flux] = {}
-                        if fields[i_field-1] not in species[key_species][key_flux]:
-                            species[key_species][key_flux].update({fields[i_field-1]:[]})
-                    if nfields < i_field:
-                        nfields = i_field
+                    if not nspecies or key_species <= nspecies:
+                        if key_species not in species:
+                            species[key_species] = {}
+                        merge_trees(_fluxes,species[key_species])
+                        fluxes = species[key_species]['fluxes']
+                        _key_field = int(row[-1])
+                        if not nfields or _key_field <= nfields:
+                            key_field = _key_field
+                            for key_flux in fluxes.keys():
+                                if _fields[key_field-1] not in fluxes[key_flux]:
+                                    fluxes[key_flux].update({_fields[key_field-1]:[]})
+
                 # check if the line is a description line
                 elif 'particle' in row:
                     _description = line.strip().split(',')
                 # automatically sort and collect all the values
                 else:
                     row = [float(value) for value in row]
-                    for i_flux,key_flux in enumerate(fluxes.keys()):
-                        species[key_species][key_flux][fields[i_field-1]].append(row[i_flux])
+                    for i_flux,key_flux in enumerate(_fluxes['fluxes'].keys()):
+                        fluxes[key_flux][_fields[key_field-1]].append(row[i_flux])
             
             # convert to arrays
             species = list_to_array(species)
-
+            
             # add the total flux electrostatic and electromagnetic fluxes
-            for _species in species.keys():
+            for key_species in species.keys():
                 total = 0.
-                for key_flux in fluxes:
-                    for key_field in species[_species][key_flux]:
-                        total += species[_species][key_flux][key_field]
-                    species[_species][key_flux].update({'sum':total})
+                fluxes = species[key_species]['fluxes']
+                for key_flux in _fluxes['fluxes'].keys():
+                    if len(fluxes[key_flux].keys()) > 1:
+                        for key_field in fluxes[key_flux]:
+                            total += fluxes[key_flux][key_field]
+                        fluxes[key_flux].update({'sum':total})
 
             description = ', '.join(_description)+' by field per species'
             
-            flux_spectrum = {'description':description, 'species':species, 'nfields':nfields}
-
-            return flux_spectrum
+            if self.collect:
+                merge_trees({'nspecies':nspecies, 'nfields':nfields},self.metadata)
+            else:
+                flux_spectrum = {'description':description, 'species':species, 'nspecies':nspecies, 'nfields':nfields}
+                return flux_spectrum
 
     def read_temperature_spectrum(self,run_path=None,nspecies=None):
         self.read_fluctuation_spectrum(run_path=run_path,file='out.tglf.temperature_spectrum',symbol='T',nspecies=nspecies)
@@ -1009,11 +1023,14 @@ class TGLF(DataSpine):
             run_date = '{} {} {}'.format(run_date_time[1],run_date_time[2],run_date_time[3])
             run_time = '{} {}'.format(run_date_time[-2],run_date_time[-1])
 
-            version = {'version':'TGLF '+version_commit, 'version_date':version_date, 'platform':gacode_platform, 'run_date':run_date, 'run_time':run_time}
+            version = {'version':version_commit, 'version_date':version_date, 'platform':gacode_platform, 'run_date':run_date, 'run_time':run_time}
 
-            return version
+            if self.collect:
+                merge_trees(version,self.metadata)
+            else:
+                return version
 
-    def read_wavefunction(self,run_path=None,nmodes=None):
+    def read_wavefunction(self,run_path=None,nmodes=None,nfields=None):
         # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
@@ -1021,39 +1038,78 @@ class TGLF(DataSpine):
         # read the output.tglf.wavefunction file
         lines = read_file(path=run_path,file='out.tglf.wavefunction')
 
-        # set file dependent variables
-        header = 2
-        modes = {}
-
         # if the file was successfully read
         if lines:
+            # set file dependent variables
+            header = 2
+            fields_list = ['phi','Bper','Bpar']
+            # check if storing IO in the TGLF object
+            if self.collect:
+                if 'eigenfunctions' not in self.output:
+                    self.output['eigenfunctions'] = {}
+                eigenfunctions = self.output['eigenfunctions']
+            else:
+                eigenfunctions = {}
             # get the index ranges
-            [_nmodes,nfields,ntheta] = [int(n) for n in lines[0].strip().split()]
-            if not nmodes:
+            [_nmodes,_nfields,ntheta] = [int(n) for n in lines[0].strip().split()]
+            if not nmodes or not nmodes <= _nmodes:
                 nmodes = _nmodes
+            if not nfields or not nfields <= _nfields:
+                nfields = _nfields
             # read column headers to store the field keys
-            fields = {key:[] for key in lines[1].strip().split()}
-            # prep the mode storage
-            for mode in range(0,nmodes):
-                key_mode = mode + 1
-                modes[key_mode] = copy.deepcopy(fields)
-            # line by line read the field wavefunctions per mode
+            fields = {key:{} for key in lines[1].strip().split()}
+            # update fields_list now knowing which fields are present in the file
+            for key_field in fields_list:
+                field_present = False
+                for field in fields.keys():
+                    if key_field in field:
+                        field_present = True
+                if not field_present:
+                    fields_list.remove(key_field)
+
+            # line by line read the field wavefunctions per mode from the file
             for line in lines[header:]:
-                row = line.split()
-                row = [autotype(value) for value in row]
-                for mode in range(0,nmodes):
-                    key_mode = mode + 1
-                    for i_key,key in enumerate(modes[key_mode].keys()):
+                # strip, split and autotype the values in the current row
+                row = [autotype(value) for value in line.strip().split()]
+                # extract the values mode by mode, field by field
+                for i_mode in range(0,nmodes):
+                    key_mode = i_mode + 1
+                    for i_field,key_field in enumerate(fields.keys()):
+                        if key_mode not in fields[key_field]:
+                            fields[key_field][key_mode] = []
+                        mode = fields[key_field][key_mode]
                         # always get the theta value at the start of the line, regardless of mode number
-                        if i_key == 0:
-                            modes[key_mode][key].append(row[i_key])
+                        if key_field == 'theta':
+                            mode.append(row[i_field])
                         # otherwise using a sliding window on the row to get the appropriate mode data
                         else:
-                            modes[key_mode][key].append(row[i_key+(mode*(2*nfields))])
+                            mode.append(row[i_field+(i_mode*(2*nfields))])
+            list_to_array(fields)
+            fields['theta'] = fields['theta'][1]
+            
+            # prep the eigenfunction storage
+            for key_field in ['theta']+fields_list:
+                if key_field not in eigenfunctions:
+                    eigenfunctions[key_field] = {}
+                if key_field in fields_list:
+                    real_part = [fields[_key_field] for _key_field in fields.keys() if key_field in _key_field and 'RE' in _key_field]
+                    imag_part = [fields[_key_field] for _key_field in fields.keys() if key_field in _key_field and 'IM' in _key_field]
+                    if real_part and imag_part:
+                        real_part = real_part[0]
+                        imag_part = imag_part[0]
+                        for key_mode in real_part.keys():
+                            if key_mode in imag_part.keys():
+                                if key_mode not in eigenfunctions[key_field]:
+                                    eigenfunctions[key_field][key_mode] = []
+                                eigenfunctions[key_field][key_mode] = real_part[key_mode] + 1j*imag_part[key_mode]
+                else:
+                    eigenfunctions[key_field] = fields[key_field]
 
-            field_spectrum = {'fields':fields, 'modes':list_to_array(modes), 'nmodes':nmodes, 'nfields':nfields, 'ntheta':ntheta}
-
-            return field_spectrum
+            if self.collect:
+                merge_trees({'nmodes':nmodes, 'nfields':nfields, 'ntheta':ntheta},self.metadata)
+            if not self.collect:
+                eigenfunction = {'fields':list(fields.keys()), 'eigenfunction':eigenfunctions, 'nmodes':nmodes, 'nfields':nfields, 'ntheta':ntheta}
+                return eigenfunction
 
     def read_width_spectrum(self,run_path=None):
         # if unspecified, for convenience check for run path in metadata
@@ -1063,20 +1119,23 @@ class TGLF(DataSpine):
         # read the out.tglf.width_spectrum file
         lines = read_file(path=run_path,file='out.tglf.width_spectrum')
 
-        # set file dependent variables
-        header = 3
-        width_list = []
-
         # if the file was successfully read
         if lines:
+            # set file dependent variables
+            header = 3
+            width_list = []
+
             description = lines[0].strip()
             # read the spectrum into a list
             for line in lines[header:]:
                 width_list.append(float(line.strip()))
 
-            width_spectrum = {'description':description, 'Gaussian_width':list_to_array(width_list)}
-
-            return width_spectrum
+            width_spectrum = {'gaussian_width':list_to_array(width_list)}
+            if self.collect:
+                merge_trees(width_spectrum,self.output)
+            else:
+                width_spectrum.update({'description':description})
+                return width_spectrum
 
     def write_input(self,path=None,file='input.tglf',header=True,verbose=False,ignore_defaults=True,overwrite=True):
         # if unspecified, for convenience check for run path in metadata
@@ -1148,7 +1207,8 @@ class TGLF(DataSpine):
         return
 
     # run functions
-    def run(self,path=None,gacode_platform=None,gacode_root=None,init_gacode=True,verbose=False,collect=True):
+    def run(self,path=None,gacode_platform=None,gacode_root=None,init_gacode=True,verbose=False,collect=None,collect_essential=True,eigenfunctions=False):
+        # initialise init GACODE bash commands
         if init_gacode:
             if not gacode_platform:
                 if 'gacode_platform' in self.metadata:
@@ -1166,6 +1226,7 @@ class TGLF(DataSpine):
                 '. $GACODE_ROOT/shared/bin/gacode_setup'
             ]
 
+        # set the run path, if unspecified for convenience check metadata for a run path
         if not path:
             if 'run_path' in self.metadata:
                 path = self.metadata['run_path']
@@ -1180,11 +1241,13 @@ class TGLF(DataSpine):
         if verbose:
             print('Running TGLF at {} ...'.format(path))
 
+        # init GACODE
         if init_gacode:
             commands = '; '.join(bash_init_gacode+bash)
         else:
             commands = '; '.join(bash)
 
+        # run TGLF
         execution = os.popen(commands)
 
         if verbose:
@@ -1192,10 +1255,15 @@ class TGLF(DataSpine):
         else:
             execution.read()
 
+        # if collect is not specified default to the object setting
+        if collect == None:
+            collect = self.collect
+        # if collect, collect all the specified output
         if collect:
-            self.collect_output(run_path=path)
+            self.collect = True
+            self.collect_output(run_path=path,essential=collect_essential,eigenfunctions=eigenfunctions,verbose=verbose)
 
-        return
+        return self
 
     def run_1d_scan(self,path=None,var=None,values=[],verbose=False,return_self=True):
         # check if scan variable was provided
@@ -1263,51 +1331,72 @@ class TGLF(DataSpine):
         else:
             return scan_output
 
-    def collect_output(self,run_path=None):
-        if 'species' not in self.output:
-            self.output['species'] = {}
-        if 'ky' not in self.output:
-            self.output['ky'] = []
-        if 'modes' not in self.output:
-            self.output['modes'] = {}
+    def collect_output(self,run_path=None,essential=True,eigenfunctions=False,verbose=False):
+        # if unspecified, for convenience check for run path in metadata
+        if not run_path and 'run_path' in self.metadata:
+            run_path = self.metadata['run_path']
+
+        output = [file for file in os.listdir(run_path) if os.path.isfile(os.path.join(run_path,file))]
+
+        output_files = {'out.tglf.density_spectrum':{'method':self.read_density_spectrum,'essential':False},
+         'out.tglf.eigenvalue_spectrum':{'method':self.read_eigenvalue_spectrum,'essential':True},
+         'out.tglf.field_spectrum':{'method':self.read_field_spectrum,'essential':False},
+         'out.tglf.gbflux':{'method':self.read_gbflux,'essential':True},
+         'out.tglf.grid':{'method':self.read_grid,'essential':False},
+         'input.tglf.gen':{'method':self.read_input_gen,'essential':True},
+         'out.tglf.intensity_spectrum':{'method':self.read_intensity_spectrum,'essential':False},
+         'out.tglf.ky_spectrum':{'method':self.read_ky_spectrum,'essential':True},
+         'out.tglf.nsts_crossphase_spectrum':{'method':self.read_nsts_crossphase_spectrum,'essential':True},
+         'out.tglf.prec':{'method':self.read_prec,'essential':True},
+         'out.tglf.QL_flux_spectrum':{'method':self.read_QL_flux_spectrum,'essential':False},
+         'out.tglf.run':{'method':self.read_run,'essential':False},
+         'out.tglf.sat_geo_spectrum':{'method':self.read_sat_geo_spectrum,'essential':False},
+         'out.tglf.scalar_saturation_parameters':{'method':self.read_scalar_saturation_parameters,'essential':True},
+         'out.tglf.spectral_shift':{'method':self.read_spectral_shift,'essential':False},
+         'out.tglf.sum_flux_spectrum':{'method':self.read_sum_flux_spectrum,'essential':True},
+         'out.tglf.temperature_spectrum':{'method':self.read_temperature_spectrum,'essential':False},
+         'out.tglf.version':{'method':self.read_version,'essential':True},
+         'out.tglf.width_spectrum':{'method':self.read_width_spectrum,'essential':False}}
+
+        # read all the files present in the specified run path, taking into account essential status
+        for file in output_files.keys():
+            if file in output:
+                if essential:
+                    if output_files[file]['essential']:
+                        output_files[file]['method']()
+                        if verbose:
+                            print('Reading {}...'.format(file))
+                else:
+                    output_files[file]['method']()
+                    if verbose:
+                            print('Reading {}...'.format(file))
         
-        self.read_input(run_path=run_path)
-        self.output['inputs_gen'] = self.read_input_gen(run_path=run_path)
-
-        # read all the output files
-        density_fluctuations = self.read_density_spectrum(run_path=run_path,nspecies=self.output['inputs_gen']['NS'])
-        eigenvalue_spectrum = self.read_eigenvalue_spectrum(run_path=run_path)
-        gbfluxes = self.read_gbflux(run_path=run_path,nspecies=self.output['inputs_gen']['NS'])
-        ky_spectrum = self.read_ky_spectrum(run_path=run_path)
-        temperature_fluctuations = self.read_temperature_spectrum(run_path=run_path,nspecies=self.output['inputs_gen']['NS'])
-        version = self.read_version(run_path=run_path)
-
-        # process the output results for convenient retrieval
-        self.output.update(version)
-        self.output['ky']+=ky_spectrum['ky']
-
-        for species in gbfluxes['species']:
-            if species not in self.output['species']:
-                self.output['species'][species] = {}
-            if 'n_tilde' not in self.output['species'][species]:
-                self.output['species'][species]['n_tilde'] = {}
-            if 'T_tilde' not in self.output['species'][species]:
-                self.output['species'][species]['T_tilde'] = {}
-            self.output['species'][species].update(gbfluxes['species'][species])
-            for i_ky,ky in enumerate(ky_spectrum['ky']):
-                self.output['species'][species]['n_tilde'].update({ky:density_fluctuations['species'][species]['density_fluctuation'][i_ky]})
-                self.output['species'][species]['T_tilde'].update({ky:temperature_fluctuations['species'][species]['temperature_fluctuation'][i_ky]})
-    
-        for mode in eigenvalue_spectrum['modes']:
-            if mode not in self.output['modes']:
-                self.output['modes'][mode] = {'x_variable':'ky', 'gamma':{}, 'omega':{}}
-            for eigenvalue in ['gamma','omega']:
-                for i_ky,ky in enumerate(ky_spectrum['ky']):
-                    self.output['modes'][mode][eigenvalue].update({ky:eigenvalue_spectrum['modes'][mode][eigenvalue][i_ky]})
-    
-        del self.output['inputs_gen']
-    
-        return
+        # generate the eigenfunctions output for all the wavenumbers in the run and store them in output
+        if eigenfunctions:
+            # read the current input file and store input and collect for later reference
+            self.read_input(overwrite=True)
+            _input = copy.deepcopy(self.input)
+            _collect = copy.deepcopy(self.collect)
+            # switch of collect to only return the eigenfunction dict
+            self.collect = False
+            ky_list = list(self.output['ky'])
+            # modify the inputs to get the eigenfunctions output
+            self.input['NKY']=1
+            self.input['USE_TRANSPORT_MODEL']='F'
+            # for each ky in the run modify the input, run TGLF, read the eigenfunctions and store them with the run
+            for ky in ky_list:
+                self.input['KY'] = ky
+                self.write_input()
+                self.run()
+                if 'eigenfunctions' not in self.output:
+                    self.output['eigenfunctions'] = {}
+                eigenfunction = self.read_wavefunction()['eigenfunction']
+                if ky not in self.output['eigenfunctions']:
+                    self.output['eigenfunctions'][ky] = {}
+                self.output['eigenfunctions'][ky].update(eigenfunction)
+            # reset the input and collect to their original states
+            self.input = copy.deepcopy(_input)
+            self.collect = copy.deepcopy(_collect)
     
     # plotting functions
     def plot_eigenvalue_spectra(self,run_path=None,modes=[1],figures=[None,None],labels=[None,None],show=True,save=False,files=[None,None]):
@@ -1350,12 +1439,6 @@ class TGLF(DataSpine):
                 
             if show:
                 plt.show()
-
-
-    def _plot_flux_spectrum():
-        """Plot the particle flux, energy flux, toroidal stress, parallel stress, exchange spectra output by `read_sum_flux_spectrum()`.
-        """
-        return
 
     def plot_gamma_spectrum(self,run_path=None,modes=[1],figure=None,label=None,show=True,save=False,file=None):
         """Plot the growth rate (gamma) spectrum as a function of ky, as output by `read_eigenvalue_spectrum()`.
@@ -1462,39 +1545,59 @@ class TGLF(DataSpine):
             if show:
                 plt.show()
 
-    def _plot_wavefunction(self,run_path=None,nfields=1):
-        """Plot the wavefunctions as a function of ballooning angle for the specified number of fields, as output by `read_wavefunction()`.
+    def plot_eigenfunctions(self,run_path=None,modes=[1],label='',fields=['phi'],show=True,save=False,file=None):
+        """Plot the growth rate (gamma) spectrum as a function of ky, as output by `read_eigenvalue_spectrum()`.
 
         Args:
             run_path (_type_, optional): _description_. Defaults to None.
-            nfields (int, optional): _description_. Defaults to 1.
+            modes (list, optional): _description_. Defaults to [1].
+            figure (_type_, optional): _description_. Defaults to None.
+            label (_type_, optional): _description_. Defaults to None.
+            show (bool, optional): _description_. Defaults to False.
+            save (bool, optional): _description_. Defaults to False.
+            file (_type_, optional): _description_. Defaults to None.
         """
+        if run_path and not self.output:
+            self.collect_output(run_path=run_path)
+        
+        if 'eigenfunctions' in self.output:
+            if 'ky' in self.output:
+                ky_list = list(self.output['ky'])
+            else:
+                ky_list = list(self.output['eigenfunctions'].keys())
+            for ky in ky_list:
+                eigenfunctions = copy.deepcopy(self.output['eigenfunctions'][ky])
+                theta = eigenfunctions['theta']
+                _fields = [key for key in eigenfunctions.keys() if key != 'theta' and key in fields]
+                reim_labels = ['Re','Im']
+                axline = False
 
-        plt.figure()
-        plt.plot(self.output['modes'][1]['theta']/np.pi,self.output['modes'][1]['RE(phi)'],'r--',label='Re(phi)')
-        plt.plot(self.output['modes'][1]['theta']/np.pi,self.output['modes'][1]['IM(phi)'],'b--',label='Im(phi)')
-        plt.plot(self.output['modes'][1]['theta']/np.pi,np.sqrt(self.output['modes'][1]['RE(phi)']**2+self.output['modes'][1]['IM(phi)']**2),'k-',label='|phi|')
-        plt.xlabel('$\\theta/\\pi$')
-        plt.legend()
+                for key_field in _fields:
+                    eigenfunction = eigenfunctions[key_field]
+                    if not modes or len(modes) > self.output['input_gen']['NMODES']:
+                        modes = list(eigenfunction.keys())
+                        print('Changed number of modes to be plotted to the available maximum!')
 
-        if 'RE(Bper)' in self.output['modes'][1]:
-            plt.figure()
-            plt.plot(self.output['modes'][1]['theta']/np.pi,self.output['modes'][1]['RE(Bper)'],'r--',label='Re(Bper)')
-            plt.plot(self.output['modes'][1]['theta']/np.pi,self.output['modes'][1]['IM(Bper)'],'b--',label='Im(Bper)')
-            plt.plot(self.output['modes'][1]['theta']/np.pi,np.sqrt(self.output['modes'][1]['RE(Bper)']**2+self.output['modes'][1]['IM(Bper)']**2),'k-',label='|Bper|')
-            plt.xlabel('$\\theta/\\pi$')
-            plt.legend()
-
-        if 'RE(Bpar)' in self.output['modes'][1]:
-            plt.figure()
-            plt.plot(self.output['modes'][1]['theta']/np.pi,self.output['modes'][1]['RE(Bpar)'],'r--',label='Re(Bpar)')
-            plt.plot(self.output['modes'][1]['theta']/np.pi,self.output['modes'][1]['IM(Bpar)'],'b--',label='Im(Bpar)')
-            plt.plot(self.output['modes'][1]['theta']/np.pi,np.sqrt(self.output['modes'][1]['RE(Bpar)']**2+self.output['modes'][1]['IM(Bpar)']**2),'k-',label='|Bpar|')
-            plt.xlabel('$\\theta/\\pi$')
-            plt.legend()
-        plt.show()
-
-        return
+                    for key_mode in modes:
+                        plt.figure()
+                        for key_reim in reim_labels:
+                            i_reim = reim_labels.index(key_reim)
+                            color_reim = ['red','blue']
+                            mode = [np.real(eigenfunction[key_mode]),np.imag(eigenfunction[key_mode])]
+                            plt.plot(theta/np.pi,mode[i_reim],label=label+' {}({})'.format(key_reim,key_field),color=color_reim[i_reim])
+                        plt.plot(theta/np.pi,np.sqrt(mode[0]**2+mode[1]**2),label=label+' ||{}||'.format(key_field),color='black')
+                        if sign(min(mode[0])) != sign(max(mode[0])) or sign(min(mode[1])) != sign(max(mode[1])) and not axline:
+                            plt.axhline(0,linewidth=0.75,color='black')
+                            axline = True
+                        plt.title('ky={:.2f}, mode: {}'.format(ky,key_mode))
+                        plt.xlabel('$\\theta_p$/$\\pi$')
+                        plt.ylabel('eigenfunction')
+                        #plt.ylim(bottom=0.)
+                        plt.legend()
+            if show:
+                plt.show()
+        else:
+            raise ValueError("No eigenfunctions found to plot, check your output!")
 
     # legacy functions
     def write_inputs_(self,path=None,file=None,control=None,species=None,gaussian=None,geometry=None,expert=None):
