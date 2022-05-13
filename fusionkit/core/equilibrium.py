@@ -12,13 +12,14 @@ import re
 import numpy as np
 import json,codecs
 import copy
+# imports methods from
 from pathlib import Path
 from scipy import interpolate, integrate
 from sys import stdout
 #import matplotlib.pyplot as plt
 
-# fusionkit dependencies
-from .utils import find, number
+# framework imports
+from .utils import *
 from .dataspine import DataSpine
 
 # Common numerical data types, for ease of type-checking
@@ -29,17 +30,18 @@ np_ftypes = (np.float16, np.float32, np.float64)
 number_types = (float, int, np_itypes, np_utypes, np_ftypes)
 array_types = (list, tuple, np.ndarray)
 
-class Equilibrium:
+class Equilibrium(DataSpine):
     """
     Class to handle any and all data related to the magnetic equilibrium in a magnetic confinement fusion device.
     """
     def __init__(self):
+        DataSpine.__init__(self)
         self.raw = {} # storage for all raw eqdsk data
         self.derived = {} # storage for all data derived from eqdsk data
         self.fluxsurfaces = {} # storage for all data related to flux surfaces
         # specify the eqdsk file formate, based on 'G EQDSK FORMAT - L Lao 2/7/97'
-        self.eqdsk_format = {
-            0:{'vars':['code','case','idum','nw','nh'],'size':[5]},
+        self._eqdsk_format = {
+            0:{'vars':['case','idum','nw','nh'],'size':[4]},
             1:{'vars':['rdim', 'zdim', 'rcentr', 'rleft', 'zmid'],'size':[5]},
             2:{'vars':['rmaxis', 'zmaxis', 'simag', 'sibry', 'bcentr'],'size':[5]},
             3:{'vars':['current', 'simag2', 'xdum', 'rmaxis2', 'xdum'],'size':[5]},
@@ -48,14 +50,14 @@ class Equilibrium:
             6:{'vars':['pres'],'size':['nw']},
             7:{'vars':['ffprim'],'size':['nw']},
             8:{'vars':['pprime'],'size':['nw']},
-            9:{'vars':['psirz'],'size':['nw','nh']},
+            9:{'vars':['psirz'],'size':['nh','nw']},
             10:{'vars':['qpsi'],'size':['nw']},
             11:{'vars':['nbbbs','limitr'],'size':[2]},
             12:{'vars':['rbbbs','zbbbs'],'size':['nbbbs']},
             13:{'vars':['rlim','zlim'],'size':['limitr']},
         }
-        self.sanity_values = ['rmaxis','zmaxis','simag','sibry'] # specify the sanity values used for consistency check of eqdsk file
-        self.max_values = 5 # maximum number of values per line
+        self._sanity_values = ['rmaxis','zmaxis','simag','sibry'] # specify the sanity values used for consistency check of eqdsk file
+        self._max_values = 5 # maximum number of values per line
 
     ## I/O functions
     def read_geqdsk(self,f_path=None,just_raw=False,add_derived=False):
@@ -83,83 +85,90 @@ class Equilibrium:
         with open(f_path,'r') as file:
             lines = file.readlines()
         
-        # convert the line strings in the values list to lists of numerical values, while retaining potential character strings at the start of the file
-        for i,line in enumerate(lines):
-            # split the line string into separate values by ' ' as delimiter, adding a space before a minus sign if it is the delimiter
-            values = list(filter(None,re.sub(r'(?<![Ee])-',' -',line).rstrip('\n').split(' ')))
-            #print('values: '+str(values))
-            # select all the numerical values in the list of sub-strings of the current line, but keep them as strings so the fortran formatting remains
-            numbers = [j for i in [number for number in (re.findall(r'^(?![A-Z]).*-?\ *[0-9]+\.?[0-9]*(?:[Ee]\ *[-+]?\ *[0-9]+)?', value) for value in values)] for j in i]
-            #print('numbers: '+str(numbers))
-            # select all the remaining sub-strings and store them in a separate list
-            strings = [value for value in values if value not in numbers]
-            # if there is a list of strings, this means it is the first line of the eqdsk file, so split it in the code and case strings
-            if len(strings) > 0:
-                strings = [strings[0],' '.join([string for string in strings[1:]])]
-            #print('strings: '+str(strings))
-            # handle the exception of the first line where in the case description numbers and strings can be mixed
-            if i == 0:
-                numbers = numbers[-3:]
-                case = [string for string in list(line.rstrip('\n').split())[1:] if string not in numbers] 
-                strings = [strings[0],' '.join(case)]
-            # convert the list of numerical sub-strings to their actual int or float value
-            numbers = [number(value) for value in numbers]
-            #print('numbers: '+str(numbers))
-            lines[i] = strings+numbers
-            #print('line after: '+str(lines[i]))
+        if lines:
+            # start at the top of the file
+            current_row = 0
+            # go through the eqdsk format key by key and collect all the values for the vars in each format row
+            for key in self._eqdsk_format:
+                if current_row < len(lines):
+                    # check if the var size is a string refering to a value to be read from the eqdsk file and backfill it, for loop for multidimensional vars
+                    for i,size in enumerate(self._eqdsk_format[key]['size']):
+                        if isinstance(size,str):
+                            self._eqdsk_format[key]['size'][i] = self.raw[size]
 
-        # start at the top of the file
-        current_row = 0
-        # go through the eqdsk format line by line and collect all the values for the vars in each format line
-        for key in self.eqdsk_format:
+                    # compute the row the current eqdsk format key ends
+                    if len(self._eqdsk_format[key]['vars']) != np.prod(self._eqdsk_format[key]['size']):
+                        end_row = current_row + int(np.ceil(len(self._eqdsk_format[key]['vars'])*np.prod(self._eqdsk_format[key]['size'])/self._max_values))
+                    else:
+                        end_row = current_row + int(np.ceil(np.prod(self._eqdsk_format[key]['size'])/self._max_values))
+
+                    # check if there are values to be collected
+                    if end_row > current_row:
+                        _lines = lines[current_row:end_row]
+                        #print(_lines)
+                        for i_row, row in enumerate(_lines):
+                            try:
+                                # split the row string into separate values by ' ' as delimiter, adding a space before a minus sign if it is the delimiter
+                                values = list(filter(None,re.sub(r'(?<![Ee])-',' -',row).rstrip('\n').split(' ')))
+                                # select all the numerical values in the list of sub-strings of the current row, but keep them as strings so the fortran formatting remains
+                                numbers = [j for i in [number for number in (re.findall(r'^(?![A-Z]).*-?\ *[0-9]+\.?[0-9]*(?:[Ee]\ *[-+]?\ *[0-9]+)?', value) for value in values)] for j in i]
+                                # select all the remaining sub-strings, store them in a separate list and then join them
+                                strings = ' '.join([value for value in values if value not in numbers])
+                                # convert the list of numerical sub-strings to their actual int or float value
+                                numbers = [autotype(value) for value in numbers]
+                                _values = numbers
+                                if strings:
+                                    _values.insert(0,strings)
+                            except:
+                                values = row.strip()
+                            _lines[i_row] = values
+                        print(_lines)
+                        # unpack all the values between current_row and end_row in the eqdsk file and flatten the resulting list of lists to a list
+                        values = [value for row in _lines for value in row]
+
+                        # handle the exception of len(eqdsk_format[key]['vars']) > 1 and the data being stored in value pairs 
+                        if len(self._eqdsk_format[key]['vars']) > 1 and len(self._eqdsk_format[key]['vars']) != self._eqdsk_format[key]['size'][0]:
+                            # make a shadow copy of values
+                            _values = copy.deepcopy(values)
+                            # empty the values list
+                            values = []
+                            # collect all the values belonging to the n-th variable in the format list and remove them from the shadow value list until empty
+                            for j in range(len(self._eqdsk_format[key]['vars']),0,-1):
+                                values.append(np.array(_values[0::j]))
+                                _values = [value for value in _values if value not in values[-1]]
+                        # store and reshape the values in a np.array() in case eqdsk_format[key]['size'] > max_values
+                        elif self._eqdsk_format[key]['size'][0] > self._max_values:
+                            values = [np.array(values).reshape(self._eqdsk_format[key]['size'])]
+                        # store the var value pairs in the eqdsk dict
+                        self.raw.update({var:values[k] for k,var in enumerate(self._eqdsk_format[key]['vars'])})
+                    # update the current position in the 
+                    current_row = end_row
+            
+            # store any remaining lines as a comment, in case of CHEASE/LIUQE
             if current_row < len(lines):
-                # check if the var size is a string refering to a value to be read from the eqdsk file and backfill it, for loop for multidimensional vars
-                for i,size in enumerate(self.eqdsk_format[key]['size']):
-                    if isinstance(size,str):
-                        self.eqdsk_format[key]['size'][i] = self.raw[size]
+                comment_lines = []
+                for line in lines[current_row+1:]:
+                    if isinstance(line,list):
+                        comment_lines.append(' '.join([str(text) for text in line]))
+                    else:
+                        if line.strip():
+                            comment_lines.append(str(line))
+                self.raw['comment'] = '\n'.join(comment_lines)
 
-                # compute the row the current eqdsk format line ends
-                if len(self.eqdsk_format[key]['vars']) != np.prod(self.eqdsk_format[key]['size']):
-                    end_row = current_row + int(np.ceil(len(self.eqdsk_format[key]['vars'])*np.prod(self.eqdsk_format[key]['size'])/self.max_values))
-                else:
-                    end_row = current_row + int(np.ceil(np.prod(self.eqdsk_format[key]['size'])/self.max_values))
+            # sanity check the eqdsk values
+            for key in self._sanity_values:
+                # find the matching sanity key in eqdsk
+                sanity_pair = [keypair for keypair in self.raw.keys() if keypair.startswith(key)][1]
+                #print(sanity_pair)
+                if self.raw[key]!=self.raw[sanity_pair]:
+                    raise ValueError('Inconsistent '+key+': %7.4g, %7.4g'%(self.raw[key], self.raw[sanity_pair])+'. CHECK YOUR EQDSK FILE!')
 
-                # check if there are values to be collected
-                if end_row > current_row:
-                    # collect all the values between current_row and end_row in the eqdsk file and flatten the resulting list of lists to a list
-                    values = [j for i in lines[current_row:end_row] for j in i]
-                    # handle the exception of len(eqdsk_format[key]['vars']) > 1 and the data being stored in value pairs 
-                    if len(self.eqdsk_format[key]['vars']) > 1 and len(self.eqdsk_format[key]['vars']) != self.eqdsk_format[key]['size'][0]:
-                        # make a shadow copy of values
-                        values_ = copy.deepcopy(values)
-                        # empty the values list
-                        values = []
-                        # collect all the values belonging to the n-th variable in the format list and remove them from the shadow value list until empty
-                        for j in range(len(self.eqdsk_format[key]['vars']),0,-1):
-                            values.append(np.array(values_[0::j]))
-                            values_ = [value for value in values_ if value not in values[-1]]
-                    # store and reshape the values in a np.array() in case eqdsk_format[key]['size'] > max_values
-                    elif self.eqdsk_format[key]['size'][0] > self.max_values:
-                        values = [np.array(values).reshape(self.eqdsk_format[key]['size'])]
-                    # store the var value pairs in the eqdsk dict
-                    self.raw.update({var:values[k] for k,var in enumerate(self.eqdsk_format[key]['vars'])})
-                # update the current position in the 
-                current_row = end_row
-
-        # sanity check the eqdsk values
-        for key in self.sanity_values:
-            # find the matching sanity key in eqdsk
-            sanity_pair = [keypair for keypair in self.raw.keys() if keypair.startswith(key)][1]
-            #print(sanity_pair)
-            if self.raw[key]!=self.raw[sanity_pair]:
-                raise ValueError('Inconsistent '+key+': %7.4g, %7.4g'%(self.raw[key], self.raw[sanity_pair])+'. CHECK YOUR EQDSK FILE!')
-
-        if add_derived:
-            self.add_derived()
-        if just_raw:
-            return self.raw
-        else:
-            return self
+            if add_derived:
+                self.add_derived()
+            if just_raw:
+                return self.raw
+            else:
+                return self
     
     def write_geqdsk(self,f_path=None):
         """ Write an `Equilibrium` object to an eqdsk g-file 
@@ -176,15 +185,15 @@ class Equilibrium:
             if not isinstance(f_path, str):
                 raise TypeError("filepath field must be a string. EQDSK file write aborted.")
 
-            maxv = int(self.max_values)
+            maxv = int(self._max_values)
 
             eqpath = Path(f_path)
             if eqpath.is_file():
                 print("%s exists, overwriting file with EQDSK file!" % (str(eqpath)))
             eq = {"xdum": 0.0}
-            for linenum in self.eqdsk_format:
-                if "vars" in self.eqdsk_format[linenum]:
-                    for key in self.eqdsk_format[linenum]["vars"]:
+            for linenum in self._eqdsk_format:
+                if "vars" in self._eqdsk_format[linenum]:
+                    for key in self._eqdsk_format[linenum]["vars"]:
                         if key in self.raw:
                             eq[key] = copy.deepcopy(self.raw[key])
                         elif key in ["nbbbs","limitr","rbbbs","zbbbs","rlim","zlim"]:
@@ -205,8 +214,8 @@ class Equilibrium:
             eq["xdum"] = 0.0
             with open(str(eqpath), 'w') as ff:
                 gcase = ""
-                if "code" in eq and eq["code"]:
-                    gcase = gcase + eq["code"] + " "
+                '''if "code" in eq and eq["code"]:
+                    gcase = gcase + eq["code"] + " "'''
                 gcase = gcase + eq["case"][:48 - len(gcase)] if (len(eq["case"]) - len(gcase)) > 48 else gcase + eq["case"]
                 ff.write("%-48s%4d%4d%4d\n" % (gcase, eq["idum"], eq["nw"], eq["nh"]))
                 ff.write("%16.9E%16.9E%16.9E%16.9E%16.9E\n" % (eq["rdim"], eq["zdim"], eq["rcentr"], eq["rleft"], eq["zmid"]))
@@ -276,7 +285,7 @@ class Equilibrium:
 
         return
     
-    def read_json(self,f_path=None):
+    def _read_json(self,f_path=None):
         """Read an `Equilibrium` object stored on disk in JSON into a callable `Equilibrium` object
 
         Args:
@@ -319,7 +328,7 @@ class Equilibrium:
 
         return self
 
-    def write_json(self,path='./',f_name='Equilibrium.json',metadata=None):
+    def _write_json(self,path='./',f_name='Equilibrium.json',metadata=None):
         """Write an `Equilibrium` object to a JSON file on disk
 
         Args:
@@ -486,7 +495,7 @@ class Equilibrium:
             derived['phirz'][i_nan,j_nan] = 0.5*(derived['phirz'][i_nan,j_nan_min]+derived['phirz'][i_nan,j_nan_plus]) 
         """
 
-        phirz_norm = abs(derived['phirz'])/(derived['phi'][-1])
+        phirz_norm = abs(derived['phirz']/(derived['phi'][-1]))
         derived['rhorz_tor'] = np.sqrt(phirz_norm)
 
         # compute the toroidal magnetic field and current density
@@ -922,7 +931,7 @@ class Equilibrium:
         #print(fs['Z0'])
 
         # find the extrema of the flux surface in the radial direction at the average elevation
-        fs_extrema = self.fluxsurface_extrema(psi_fs=psi_fs,R_fs=R_fs,Z_fs=Z_fs,Z0_fs=fs['Z0'],psirz=psirz,R=R,Z=Z)
+        fs_extrema = self.fluxsurface_extrema(psi_fs=psi_fs,R_fs=R_fs,Z_fs=Z_fs,Z0_fs=fs['Z0'])
         R_out = fs_extrema['R_out']
         R_in = fs_extrema['R_in']
 
@@ -1222,7 +1231,7 @@ class Equilibrium:
                     if self.raw[quantity].size == old_x.size:
                         #print('quantity: {}'.format(quantity))
                         self.raw[quantity] = interpolate.interp1d(old_x,self.raw[quantity],kind=interp_order)(new_x)
-                    elif self.raw[quantity].size == old_x.size**2:
+                    elif self.raw[quantity].size == old_x.size*old_y.size:
                         #print('quantity: {}'.format(quantity))
                         self.raw[quantity] = interpolate.interp2d(old_x,old_y,self.raw[quantity],kind='quintic')(new_x,new_x)
             self.raw['nw'] = nw
