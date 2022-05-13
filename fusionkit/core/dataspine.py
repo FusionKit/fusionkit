@@ -126,7 +126,7 @@ class DataSpine:
                     nan = np.isnan(np.array(tree[key])).any()
                 else:
                     nan = False
-                print('{}{}:{},{}'.format(preamb,key,type(tree[key])))
+                print('{}{}:{}'.format(preamb,key,type(tree[key])))
                 
     def remove_nan_tree(self,tree):
         _tree = copy.deepcopy(tree)
