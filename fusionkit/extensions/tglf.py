@@ -1030,13 +1030,15 @@ class TGLF(DataSpine):
             else:
                 return version
 
-    def read_wavefunction(self,run_path=None,nmodes=None,nfields=None):
+    def read_wavefunction(self,run_path=None,file=None,nmodes=None,nfields=None):
         # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
 
+        if not file:
+            file = 'out.tglf.wavefunction'
         # read the output.tglf.wavefunction file
-        lines = read_file(path=run_path,file='out.tglf.wavefunction')
+        lines = read_file(path=run_path,file=file)
 
         # if the file was successfully read
         if lines:
@@ -1385,17 +1387,22 @@ class TGLF(DataSpine):
             self.input['USE_TRANSPORT_MODEL']='F'
             # for each ky in the run modify the input, run TGLF, read the eigenfunctions and store them with the run
             for ky in ky_list:
-                self.input['KY'] = ky
-                self.write_input()
-                self.run()
+                file = 'out.tglf.wavefunction_ky={:.2f}'.format(ky)
+                if not os.path.isfile(run_path+file):
+                    self.input['KY'] = ky
+                    self.write_input()
+                    self.run()
                 if 'eigenfunctions' not in self.output:
                     self.output['eigenfunctions'] = {}
-                eigenfunction = self.read_wavefunction()['eigenfunction']
+                eigenfunction = self.read_wavefunction(file=file)['eigenfunction']
                 if ky not in self.output['eigenfunctions']:
                     self.output['eigenfunctions'][ky] = {}
                 self.output['eigenfunctions'][ky].update(eigenfunction)
+                if os.path.isfile(run_path+'/out.tglf.wavefunction'):
+                    os.rename(run_path+'/out.tglf.wavefunction',run_path+file)
             # reset the input and collect to their original states
             self.input = copy.deepcopy(_input)
+            self.write_input()
             self.collect = copy.deepcopy(_collect)
     
     # plotting functions
