@@ -441,7 +441,7 @@ class TGLF(DataSpine):
             # go line by line
             for line in lines:
                 # check it is not a header line
-                if '#' not in line:
+                if '#' not in line and line.strip():
                     line = line.split("=")
                     key = line[0].strip()
                     value = line[1].strip()
@@ -456,7 +456,7 @@ class TGLF(DataSpine):
                             value = str(value)
 
                     input.update({key:value})
-                else:
+                elif line.strip():
                     line = line.strip().split('#')[1]
                     description += ', '+line
 
@@ -1262,12 +1262,13 @@ class TGLF(DataSpine):
             collect = self.collect
         # if collect, collect all the specified output
         if collect:
-            self.collect = True
-            self.collect_output(run_path=path,essential=collect_essential,eigenfunctions=eigenfunctions,verbose=verbose)
+            if not self.collect:
+                self.collect = True
+            self.collect_output(run_path=path,essential=collect_essential,eigenfunctions=eigenfunctions)
 
         return self
 
-    def run_1d_scan(self,path=None,var=None,values=[],verbose=False,return_self=True):
+    def run_1d_scan(self,path=None,var=None,values=[],verbose=False,collect_essential=False,return_self=True):
         # check if scan variable was provided
         if var:
             # pre-fill a value for the scan variable in case it is not already in input
@@ -1280,21 +1281,30 @@ class TGLF(DataSpine):
             raise ValueError('Specify scan variable!')
         
         scan_output = {var:{}}
+        _collect = copy.deepcopy(self.collect)
+        _output = copy.deepcopy(self.output)
+        self.collect = True
 
         if verbose:
             print('Running TGLF 1D scan...')
         for value in values:
-            # print a progress %
-            print('{} TGLF 1D scan {}% complete'.format(ERASE_LINE,round(100*(find(value,values))/len(values))),flush=False,end='\r')
             # update the scan variable value
             self.input[var] = float(value)
             # generate a new input.tglf file
             self.write_input(path=path,ignore_defaults=False,header=False)
+            # reset output dictionary
+            self.output = {}
             # run TGLF
-            self.run(path=path)
+            self.run(path=path,collect_essential=collect_essential)
             # store the results in the scan_output dict
             scan_output[var].update({value:copy.deepcopy(self.output)})
+            # print a progress %
+            print('{} TGLF 1D scan {}% complete'.format(ERASE_LINE,round(100*(find(value,values))/len(values))),flush=False,end='\r')
         #print(ERASE_LINE)
+
+        # put back the output present before the scan
+        self.collect = _collect
+        self.output = _output
         
         if verbose:
             print('{}TGLF 1D scan complete...'.format(ERASE_LINE))
@@ -1305,8 +1315,8 @@ class TGLF(DataSpine):
                 self.output['scans'].update({var:scan_output[var]})    
         else:
             return scan_output
-    
-    def run_2d_scan(self,path=None,var_y=None,values_y=[],var_x=None,values_x=[],verbose=False,return_self=True):
+
+    def run_2d_scan(self,path=None,var_y=None,values_y=[],var_x=None,values_x=[],verbose=False,collect_essential=False,return_self=True):
         if var_y not in self.input:
             if values_y:
                 self.input[var_y]=values_y[0]
@@ -1322,7 +1332,7 @@ class TGLF(DataSpine):
                 # print a progress %, ANSI escape squences are used to move the cursor to update the multiline progress print
                 print('{} TGLF 2D scan {}% complete\n'.format(CURSOR_UP_ONE + ERASE_LINE,round(100*(find(value,values_y))/len(values_y))),flush=False,end='\r')
             self.input[var_y] = float(value)
-            self.run_1d_scan(path=path,var=var_x,values=values_x,return_self=True)
+            self.run_1d_scan(path=path,var=var_x,values=values_x,collect_essential=collect_essential,return_self=True)
             scan_output[var_y].update({value:copy.deepcopy(self.output['scans'])})
             del self.output['scans'][var_x]
         
@@ -1337,8 +1347,12 @@ class TGLF(DataSpine):
         # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
+        
+        # check for and store any previous runs/output
+        default_keys = ['species', 'eigenvalues', 'eigenfunctions', 'fields', 'input_gen', 'ky', 'prec', 'sat_geo', 'sat_scalar_params', 'spectral_shift', 'gaussian_width']
+        self.collate_run(select_keys=default_keys)
 
-        output = [file for file in os.listdir(run_path) if os.path.isfile(os.path.join(run_path,file))]
+        output_run = [file for file in os.listdir(run_path) if os.path.isfile(os.path.join(run_path,file))]
 
         output_files = {'out.tglf.density_spectrum':{'method':self.read_density_spectrum,'essential':False},
          'out.tglf.eigenvalue_spectrum':{'method':self.read_eigenvalue_spectrum,'essential':True},
@@ -1362,7 +1376,7 @@ class TGLF(DataSpine):
 
         # read all the files present in the specified run path, taking into account essential status
         for file in output_files.keys():
-            if file in output:
+            if file in output_run:
                 if essential:
                     if output_files[file]['essential']:
                         output_files[file]['method']()
@@ -1388,13 +1402,21 @@ class TGLF(DataSpine):
             # for each ky in the run modify the input, run TGLF, read the eigenfunctions and store them with the run
             for ky in ky_list:
                 file = 'out.tglf.wavefunction_ky={:.2f}'.format(ky)
+                if 'eigenfunctions' not in self.output:
+                    self.output['eigenfunctions'] = {}
                 if not os.path.isfile(run_path+file):
                     self.input['KY'] = ky
                     self.write_input()
                     self.run()
-                if 'eigenfunctions' not in self.output:
-                    self.output['eigenfunctions'] = {}
-                eigenfunction = self.read_wavefunction(file=file)['eigenfunction']
+                    eigenfunction = self.read_wavefunction()['eigenfunction']
+                else:
+                    _eigenfunctions = self.read_wavefunction(file=file)
+                    eigenfunction = _eigenfunctions['eigenfunction']
+                    if _eigenfunctions['nmodes'] < self.metadata['nmodes'] or _eigenfunctions['nfields'] < self.metadata['nfields']:
+                        self.input['KY'] = ky
+                        self.write_input()
+                        self.run()
+                        eigenfunction = self.read_wavefunction()['eigenfunction']
                 if ky not in self.output['eigenfunctions']:
                     self.output['eigenfunctions'][ky] = {}
                 self.output['eigenfunctions'][ky].update(eigenfunction)
@@ -1404,19 +1426,66 @@ class TGLF(DataSpine):
             self.input = copy.deepcopy(_input)
             self.write_input()
             self.collect = copy.deepcopy(_collect)
+        
+        # if there are any collated runs present in self.output, collate the current run as well
+        output_keys = [key for key in self.output.keys() if 'run' in key]
+        if output_keys:
+            self.collate_run(select_keys=default_keys)
+    
+    def collate_run(self,output=None,select_keys=[],run_id=None):
+        """Collate the select_keys in output in run_id
+
+        Args:
+            `output` (dict, optional): The dictionary to look in for `select_keys`. Defaults to self.output.
+            `select_keys` (list): The keys to be collated in a `run_id`. Defaults to [].
+            `run_id` (str, optional): A string specifying the run in some way. Defaults to 'run_x', where x is the highest run_id+1.
+
+        Raises:
+            ValueError: If no select_keys are specified this function cannot proceed!
+        """
+        # for convenience assume self.output if output not specified
+        if not output:
+            output = self.output
+        _run = {}
+        if output:
+            if select_keys:
+                # key by key copy the output to _run and remove the keys from output
+                for key in select_keys:
+                    if key in output:
+                        _run.update({key:copy.deepcopy(output[key])})
+                        output.pop(key,None)
+                if _run:
+                    # if no run_id is specified assume run_x as default format and compute the next run number if neccesary
+                    if not run_id:
+                        run_num = sorted([int(key.split('_')[-1]) for key in output.keys() if 'run' in key])
+                        if not run_num:
+                            run_num = 1
+                        else:
+                            run_num = run_num[-1]+1
+                        run_id = 'run_{}'.format(run_num)
+                    # store the collated run
+                    output.update({run_id:_run})
+            else:
+                raise ValueError("No keys provided to collect into a run!")
     
     # plotting functions
-    def plot_eigenvalue_spectra(self,run_path=None,modes=[1],figures=[None,None],labels=[None,None],show=True,save=False,files=[None,None]):
+    def plot_eigenvalue_spectra(self,run_path=None,output=None,modes=[1],figures=[None,None],labels=[None,None],show=True,save=False,files=[None,None]):
         if run_path and not self.output:
             self.collect_output(run_path=run_path)
+        
+        if not output:
+            output = self.output
 
-        if 'eigenvalues' in self.output:
-            self.plot_gamma_spectrum(run_path=run_path,modes=modes,figure=figures[0],label=labels[0],show=False,save=save,file=files[0])
-            self.plot_omega_spectrum(run_path=run_path,modes=modes,figure=figures[1],label=labels[1],show=show,save=save,file=files[1])
+        if 'eigenvalues' in output:
+            self.plot_gamma_spectrum(run_path=run_path,output=output,modes=modes,figure=figures[0],label=labels[0],show=False,save=save,file=files[0])
+            self.plot_omega_spectrum(run_path=run_path,output=output,modes=modes,figure=figures[1],label=labels[1],show=show,save=save,file=files[1])
 
-    def plot_field_spectra(self,run_path=None,modes=[1],figure=None,label=None,markers=[],show=True,save=False,file=None):
+    def plot_field_spectra(self,run_path=None,output=None,modes=[1],figure=None,label=None,markers=[],show=True,save=False,file=None):
         if run_path and not self.output:
             self.collect_output(run_path=run_path)
+        
+        if not output:
+            output = self.output
 
         if 'fields' in self.output:
             fields = self.output['fields']
@@ -1447,7 +1516,7 @@ class TGLF(DataSpine):
             if show:
                 plt.show()
 
-    def plot_gamma_spectrum(self,run_path=None,modes=[1],figure=None,label=None,show=True,save=False,file=None):
+    def plot_gamma_spectrum(self,run_path=None,output=None,modes=[1],figure=None,label=None,show=True,save=False,file=None):
         """Plot the growth rate (gamma) spectrum as a function of ky, as output by `read_eigenvalue_spectrum()`.
 
         Args:
@@ -1462,8 +1531,11 @@ class TGLF(DataSpine):
         if run_path and not self.output:
             self.collect_output(run_path=run_path)
         
-        if 'eigenvalues' in self.output:
-            eigenvalues = self.output['eigenvalues']
+        if not output:
+            output = self.output
+        
+        if 'eigenvalues' in output:
+            eigenvalues = output['eigenvalues']
             ky = self.output['ky']
             gamma = eigenvalues['gamma']
 
@@ -1489,7 +1561,7 @@ class TGLF(DataSpine):
             if show:
                 plt.show()
 
-    def plot_omega_spectrum(self,run_path=None,modes=[1],figure=None,label=None,align='right',show=True,save=False,file=None):
+    def plot_omega_spectrum(self,run_path=None,output=None,modes=[1],figure=None,label=None,align='right',show=True,save=False,file=None):
         """Plot the frequency (omega) spectrum as a function of ky, as output by `read_eigenvalue_spectrum()`.
         NOTE: this plotting routine plots the frequency using the frequency direction convention as specified during reading!
 
@@ -1506,8 +1578,11 @@ class TGLF(DataSpine):
         if run_path and not self.output:
             self.collect_output(run_path=run_path)
         
-        if 'eigenvalues' in self.output:
-            eigenvalues = self.output['eigenvalues']
+        if not output:
+            output = self.output
+        
+        if 'eigenvalues' in output:
+            eigenvalues = output['eigenvalues']
             sign_convention = eigenvalues['sign_convention']
             sign_labels = ['ion','electron']
             if not sign_convention < 0:
@@ -1515,7 +1590,7 @@ class TGLF(DataSpine):
             align_x = 0.985
             if align != 'right':
                 align_x = 0.015
-            ky = self.output['ky']
+            ky = output['ky']
             omega = eigenvalues['omega']
             mono = {'size':9,'weight':'bold'}
 
@@ -1552,7 +1627,7 @@ class TGLF(DataSpine):
             if show:
                 plt.show()
 
-    def plot_eigenfunctions(self,run_path=None,modes=[1],label='',fields=['phi'],show=True,save=False,file=None):
+    def plot_eigenfunctions(self,run_path=None,output=None,modes=[1],label='',fields=['phi'],show=True,save=False,file=None):
         """Plot the growth rate (gamma) spectrum as a function of ky, as output by `read_eigenvalue_spectrum()`.
 
         Args:
@@ -1567,13 +1642,16 @@ class TGLF(DataSpine):
         if run_path and not self.output:
             self.collect_output(run_path=run_path)
         
-        if 'eigenfunctions' in self.output:
+        if not output:
+            output = self.output
+        
+        if 'eigenfunctions' in output:
             if 'ky' in self.output:
-                ky_list = list(self.output['ky'])
+                ky_list = list(output['ky'])
             else:
-                ky_list = list(self.output['eigenfunctions'].keys())
+                ky_list = list(output['eigenfunctions'].keys())
             for ky in ky_list:
-                eigenfunctions = copy.deepcopy(self.output['eigenfunctions'][ky])
+                eigenfunctions = copy.deepcopy(output['eigenfunctions'][ky])
                 theta = eigenfunctions['theta']
                 _fields = [key for key in eigenfunctions.keys() if key != 'theta' and key in fields]
                 reim_labels = ['Re','Im']
@@ -1581,7 +1659,7 @@ class TGLF(DataSpine):
 
                 for key_field in _fields:
                     eigenfunction = eigenfunctions[key_field]
-                    if not modes or len(modes) > self.output['input_gen']['NMODES']:
+                    if not modes or len(modes) > output['input_gen']['NMODES']:
                         modes = list(eigenfunction.keys())
                         print('Changed number of modes to be plotted to the available maximum!')
 
