@@ -1558,6 +1558,14 @@ class TGLF(DataSpine):
             if label:
                 plt.legend()
             
+            if save:
+                if not run_path and 'run_path' in self.metadata:
+                    run_path = self.metadata['run_path']
+                if file:
+                    plt.savefig('{}{}'.format(run_path,file),format='pdf')
+                else:
+                    raise ValueError('TGLF.plot_gamma_spectrum: No file name was provided!')
+            
             if show:
                 plt.show()
 
@@ -1623,6 +1631,14 @@ class TGLF(DataSpine):
             
             if label:
                 plt.legend()
+            
+            if save:
+                if not run_path and 'run_path' in self.metadata:
+                    run_path = self.metadata['run_path']
+                if file:
+                    plt.savefig('{}{}'.format(run_path,file),format='pdf')
+                else:
+                    raise ValueError('TGLF.plot_omega_spectrum: No file name was provided!')
 
             if show:
                 plt.show()
