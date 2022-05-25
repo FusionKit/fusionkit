@@ -882,26 +882,50 @@ class TGLF(DataSpine):
         lines = read_file(path=run_path,file='out.tglf.scalar_saturation_parameters')
 
         if lines:
-            # set file dependent variables
-            header = 2
             if self.collect:
                 if 'sat_scalar_params' not in self.output:
                     self.output['sat_scalar_params'] = {}
                 scalar_sat_params = self.output['sat_scalar_params']
             else:
                 scalar_sat_params = {}
-            description = lines[0].strip()
+            sat = None
+            # check which version of the scalar_saturation_parameters file is present
+            if '!' not in lines[0].strip():
+                # set file dependent variables
+                header = 2
+                description = lines[0].strip()
+            else:
+                # set file dependent variables for old variant of the file
+                header = 1
+                description = lines[0].strip().split('!')[-1]
             # go line by line
             for i_line,line in enumerate(lines[header:]):
-                row = line.strip().split()
-                row = [autotype(value.split(',')[0]) for value in row]
-                # check if the line contains the variable names
-                if all(isinstance(value,str) for value in row):
-                    for i_value,value in enumerate(row):
-                        # get the next row containing the variable values
-                        next_row = [autotype(value) for value in lines[header+i_line+1].strip().split()]
-                        # automatically sort and collect all the values
-                        scalar_sat_params.update({value:next_row[i_value]})
+                # check if the line contains a SAT header
+                if '!' and 'SAT' in line:
+                    sat = line.strip().split()[1]
+                    if sat not in scalar_sat_params:
+                        scalar_sat_params[sat] = {}
+                # check if the line contains a key=value pair
+                if '=' in line:
+                    row = line.strip().split('=')
+                    key = row[0]
+                    value = autotype(row[-1])
+                    # check if this a loose key=value pair or belongs under a SAT rule
+                    if sat:
+                        scalar_sat_params[sat][key] = value
+                    else:
+                        scalar_sat_params[key] = value
+                # check if the line contains the csv keys/values
+                elif ',' in line:
+                    row = line.strip().split()
+                    row = [autotype(value.split(',')[0]) for value in row]
+                    # check if the line contains the variable names
+                    if all(isinstance(value,str) for value in row):
+                        for i_value,value in enumerate(row):
+                            # get the next row containing the variable values
+                            next_row = [autotype(value) for value in lines[header+i_line+1].strip().split()]
+                            # automatically sort and collect all the values
+                            scalar_sat_params.update({value:next_row[i_value]})
 
             if not self.collect:
                 scalar_sat_params.update({'description':description})
@@ -1209,7 +1233,7 @@ class TGLF(DataSpine):
         return
 
     # run functions
-    def run(self,path=None,gacode_platform=None,gacode_root=None,init_gacode=True,verbose=False,collect=None,collect_essential=True,eigenfunctions=False):
+    def run(self,path=None,gacode_platform=None,gacode_root=None,init_gacode=False,verbose=False,collect=None,collect_essential=True,eigenfunctions=False):
         # initialise init GACODE bash commands
         if init_gacode:
             if not gacode_platform:
@@ -1354,36 +1378,46 @@ class TGLF(DataSpine):
 
         output_run = [file for file in os.listdir(run_path) if os.path.isfile(os.path.join(run_path,file))]
 
-        output_files = {'out.tglf.density_spectrum':{'method':self.read_density_spectrum,'essential':False},
-         'out.tglf.eigenvalue_spectrum':{'method':self.read_eigenvalue_spectrum,'essential':True},
-         'out.tglf.field_spectrum':{'method':self.read_field_spectrum,'essential':False},
-         'out.tglf.gbflux':{'method':self.read_gbflux,'essential':True},
-         'out.tglf.grid':{'method':self.read_grid,'essential':False},
-         'input.tglf.gen':{'method':self.read_input_gen,'essential':True},
-         'out.tglf.intensity_spectrum':{'method':self.read_intensity_spectrum,'essential':False},
-         'out.tglf.ky_spectrum':{'method':self.read_ky_spectrum,'essential':True},
-         'out.tglf.nsts_crossphase_spectrum':{'method':self.read_nsts_crossphase_spectrum,'essential':True},
-         'out.tglf.prec':{'method':self.read_prec,'essential':True},
-         'out.tglf.QL_flux_spectrum':{'method':self.read_QL_flux_spectrum,'essential':False},
-         'out.tglf.run':{'method':self.read_run,'essential':False},
-         'out.tglf.sat_geo_spectrum':{'method':self.read_sat_geo_spectrum,'essential':False},
-         'out.tglf.scalar_saturation_parameters':{'method':self.read_scalar_saturation_parameters,'essential':True},
-         'out.tglf.spectral_shift':{'method':self.read_spectral_shift,'essential':False},
-         'out.tglf.sum_flux_spectrum':{'method':self.read_sum_flux_spectrum,'essential':True},
-         'out.tglf.temperature_spectrum':{'method':self.read_temperature_spectrum,'essential':False},
-         'out.tglf.version':{'method':self.read_version,'essential':True},
-         'out.tglf.width_spectrum':{'method':self.read_width_spectrum,'essential':False}}
+        output_files = {'input.tglf.gen':{'method':self.read_input_gen,'essential':True},
+                        'out.tglf.density_spectrum':{'method':self.read_density_spectrum,'essential':False},
+                        'out.tglf.eigenvalue_spectrum':{'method':self.read_eigenvalue_spectrum,'essential':True},
+                        'out.tglf.field_spectrum':{'method':self.read_field_spectrum,'essential':False},
+                        'out.tglf.gbflux':{'method':self.read_gbflux,'essential':True},
+                        'out.tglf.grid':{'method':self.read_grid,'essential':False},
+                        'out.tglf.intensity_spectrum':{'method':self.read_intensity_spectrum,'essential':False},
+                        'out.tglf.ky_spectrum':{'method':self.read_ky_spectrum,'essential':True},
+                        'out.tglf.nsts_crossphase_spectrum':{'method':self.read_nsts_crossphase_spectrum,'essential':True},
+                        'out.tglf.prec':{'method':self.read_prec,'essential':True},
+                        'out.tglf.QL_flux_spectrum':{'method':self.read_QL_flux_spectrum,'essential':False},
+                        'out.tglf.run':{'method':self.read_run,'essential':False},
+                        'out.tglf.sat_geo_spectrum':{'method':self.read_sat_geo_spectrum,'essential':False},
+                        'out.tglf.scalar_saturation_parameters':{'method':self.read_scalar_saturation_parameters,'essential':True},
+                        'out.tglf.spectral_shift':{'method':self.read_spectral_shift,'essential':False},
+                        'out.tglf.sum_flux_spectrum':{'method':self.read_sum_flux_spectrum,'essential':True},
+                        'out.tglf.temperature_spectrum':{'method':self.read_temperature_spectrum,'essential':False},
+                        'out.tglf.version':{'method':self.read_version,'essential':True},
+                        'out.tglf.width_spectrum':{'method':self.read_width_spectrum,'essential':False}}
 
         # read all the files present in the specified run path, taking into account essential status
         for file in output_files.keys():
             if file in output_run:
                 if essential:
                     if output_files[file]['essential']:
-                        output_files[file]['method']()
+                        try:
+                            output_files[file]['method']()
+                        except:
+                            if verbose:
+                                print('Method {} failed!'.format(output_files[file]['method']))
+                            pass
                         if verbose:
                             print('Reading {}...'.format(file))
                 else:
-                    output_files[file]['method']()
+                    try:
+                        output_files[file]['method']()
+                    except:
+                        if verbose:
+                            print('Method {} failed!'.format(output_files[file]['method']))
+                        pass
                     if verbose:
                             print('Reading {}...'.format(file))
         
