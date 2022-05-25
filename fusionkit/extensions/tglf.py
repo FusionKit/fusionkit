@@ -1378,7 +1378,8 @@ class TGLF(DataSpine):
 
         output_run = [file for file in os.listdir(run_path) if os.path.isfile(os.path.join(run_path,file))]
 
-        output_files = {'input.tglf.gen':{'method':self.read_input_gen,'essential':True},
+        output_files = {'out.tglf.version':{'method':self.read_version,'essential':True},
+                        'input.tglf.gen':{'method':self.read_input_gen,'essential':True},
                         'out.tglf.density_spectrum':{'method':self.read_density_spectrum,'essential':False},
                         'out.tglf.eigenvalue_spectrum':{'method':self.read_eigenvalue_spectrum,'essential':True},
                         'out.tglf.field_spectrum':{'method':self.read_field_spectrum,'essential':False},
@@ -1395,7 +1396,6 @@ class TGLF(DataSpine):
                         'out.tglf.spectral_shift':{'method':self.read_spectral_shift,'essential':False},
                         'out.tglf.sum_flux_spectrum':{'method':self.read_sum_flux_spectrum,'essential':True},
                         'out.tglf.temperature_spectrum':{'method':self.read_temperature_spectrum,'essential':False},
-                        'out.tglf.version':{'method':self.read_version,'essential':True},
                         'out.tglf.width_spectrum':{'method':self.read_width_spectrum,'essential':False}}
 
         # read all the files present in the specified run path, taking into account essential status
