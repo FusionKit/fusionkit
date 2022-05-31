@@ -33,25 +33,29 @@ class QLK:
         charge_i = plasma.species[1]['charge']['value']
         charge_L = plasma.species[2]['charge']['value']
         if imp_composite:
-            #n_comp = 1e-19*interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.species[3]['n']['value'])(rho_fs)
+            n_comp = 1e-19*interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.species[3]['n']['value'])(rho_fs)
             mass_comp = interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.species[3]['mass']['value'])(rho_fs)
             charge_comp = (interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.species[3]['charge']['value'])(rho_fs)).astype(int)
-            n_comp = (ne-ni*charge_i-n_LZ*charge_L)/charge_comp
+            #n_comp = (ne-ni*charge_i-n_LZ*charge_L)/charge_comp
+            ni = (ne-n_LZ*charge_L-n_comp*charge_comp)/charge_i
         else:
-            n_LZ = (ne-ni*charge_i)/charge_L
+            #n_LZ = (ne-ni*charge_i)/charge_L
+            ni = (ne-n_LZ*charge_L)/charge_i
 
         # temperatures
         Te = 1e-3*interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.species[0]['T']['value'])(rho_fs)
         Ti = 1e-3*interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.species[1]['T']['value'])(rho_fs)
 
         RLne = R0*(interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.species[0]['n']['z'])(rho_fs))
-        RLni = R0*(interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.species[1]['n']['z'])(rho_fs))
+        #RLni = R0*(interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.species[1]['n']['z'])(rho_fs))
         RLn_LZ = R0*(interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.species[2]['n']['z'])(rho_fs))
         if imp_composite:
-            #Ln_comp = R0*(interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.species[3]['n']['z'])(rho_fs))
-            RLn_comp = ((ne*RLne)-(ni*charge_i*RLni)-(n_LZ*charge_L*RLn_LZ))/(n_comp*charge_comp)
+            RLn_comp = R0*(interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.species[3]['n']['z'])(rho_fs))
+            #RLn_comp = ((ne*RLne)-(ni*charge_i*RLni)-(n_LZ*charge_L*RLn_LZ))/(n_comp*charge_comp)
+            RLni = ((ne*RLne)-(n_LZ*charge_L*RLn_LZ)-(n_comp*charge_comp*RLn_comp))/(ni*charge_i)
         else:
-            RLn_LZ = ((ne*RLne)-(ni*charge_i*RLni))/(n_LZ*charge_L)
+            #RLn_LZ = ((ne*RLne)-(ni*charge_i*RLni))/(n_LZ*charge_L)
+            RLni = ((ne*RLne)-(n_LZ*charge_L*RLn_LZ))/(ni*charge_i)
         RLTe = R0*(interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.species[0]['T']['z'])(rho_fs))
         RLTi = R0*(interpolate.interp1d(plasma.equilibrium.derived['rho_tor'],plasma.species[1]['T']['z'])(rho_fs))
 
