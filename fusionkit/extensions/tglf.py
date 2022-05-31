@@ -130,6 +130,9 @@ class TGLF(DataSpine):
         self._ids_map = {}
 
     # I/O functions  
+    def read_ave_p0_spectrum(self,run_path=None,nky=None):
+        self.read_var_spectrum(run_path=run_path,file='out.tglf.width_spectrum',header=3,nky=nky,var='gaussian_width')
+        
     def read_density_spectrum(self,run_path=None,nspecies=None):
         self.read_fluctuation_spectrum(run_path=run_path,file='out.tglf.density_spectrum',symbol='n',nspecies=nspecies)
 
@@ -932,7 +935,7 @@ class TGLF(DataSpine):
                 return scalar_sat_params
 
     def read_spectral_shift(self,run_path=None,nky=None):
-        self.read_var_spectrum(run_path=run_path,file='out.tglf.spectral_shift',header=3,nky=nky,var='spectral_shift')
+        self.read_var_spectrum(run_path=run_path,file='out.tglf.spectral_shift',header=5,nky=nky,var='spectral_shift')
 
     def read_sum_flux_spectrum(self,run_path=None,nspecies=None,nfields=None):
         # if unspecified, for convenience check for run path in metadata
