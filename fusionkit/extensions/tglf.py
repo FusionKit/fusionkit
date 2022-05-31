@@ -1054,6 +1054,31 @@ class TGLF(DataSpine):
             else:
                 return version
 
+    def read_var_spectrum(self,run_path=None,file=None,nky=None,var=None,header=None):
+        # if unspecified, for convenience check for run path in metadata
+        if not run_path and 'run_path' in self.metadata:
+            run_path = self.metadata['run_path']
+
+        # read the out.tglf.width_spectrum file
+        lines = read_file(path=run_path,file=file)
+
+        # if the file was successfully read
+        if lines and header:
+            # set file dependent variables
+            _list = []
+
+            description = lines[0].strip()
+            # read the spectrum into a list
+            for line in lines[header:header+nky]:
+                _list.append(float(line.strip()))
+            
+            var_spectrum = {var:list_to_array(_list)}
+            if self.collect:
+                merge_trees(var_spectrum,self.output)
+            else:
+                var_spectrum.update({'description':description})
+                return var_spectrum
+    
     def read_wavefunction(self,run_path=None,file=None,nmodes=None,nfields=None):
         # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
