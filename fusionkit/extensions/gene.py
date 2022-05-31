@@ -213,8 +213,8 @@ class GENE:
             "coll" : gene_config['coll'],
             }
         )
-        if general_nl['collision_op'] == "'sugama'":
-            general_nl.update({"coll_FLR" : '.T.'})
+        #if general_nl['collision_op'] == "'sugama'":
+        #    general_nl.update({"coll_FLR" : '.T.'})
         if gene_config['beta']:
             general_nl.update({"beta" : gene_config['beta']})
         if general_nl['beta'] == -1:
