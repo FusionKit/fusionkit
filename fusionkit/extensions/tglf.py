@@ -931,32 +931,8 @@ class TGLF(DataSpine):
                 scalar_sat_params.update({'description':description})
                 return scalar_sat_params
 
-    def read_spectral_shift(self,run_path=None):
-        # if unspecified, for convenience check for run path in metadata
-        if not run_path and 'run_path' in self.metadata:
-            run_path = self.metadata['run_path']
-
-        # read the out.tglf.spectral_shift file
-        lines = read_file(path=run_path,file='out.tglf.spectral_shift')
-
-        # if the file was successfully read
-        if lines:
-            # set file dependent variables
-            header = 5
-            shift_list = []
-
-            description = lines[0].strip() + ', ' + ' '.join([line.strip() for line in lines[1:header-2]])
-            # read the spectrum into a list
-            for line in lines[header:]:
-                shift_list.append(float(line.strip()))
-        
-            spectral_shift = {'spectral_shift':list_to_array(shift_list)}
-        
-            if self.collect:
-                merge_trees(spectral_shift,self.output)
-            else:
-                spectral_shift.update({'description':description})
-                return spectral_shift
+    def read_spectral_shift(self,run_path=None,nky=None):
+        self.read_var_spectrum(run_path=run_path,file='out.tglf.spectral_shift',header=3,nky=nky,var='spectral_shift')
 
     def read_sum_flux_spectrum(self,run_path=None,nspecies=None,nfields=None):
         # if unspecified, for convenience check for run path in metadata
@@ -1054,7 +1030,7 @@ class TGLF(DataSpine):
             else:
                 return version
 
-    def read_var_spectrum(self,run_path=None,file=None,nky=None,var=None,header=None):
+    def read_var_spectrum(self,run_path=None,file=None,header=None,nky=None,var=None):
         # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
@@ -1162,31 +1138,8 @@ class TGLF(DataSpine):
                 eigenfunction = {'fields':list(fields.keys()), 'eigenfunction':eigenfunctions, 'nmodes':nmodes, 'nfields':nfields, 'ntheta':ntheta}
                 return eigenfunction
 
-    def read_width_spectrum(self,run_path=None):
-        # if unspecified, for convenience check for run path in metadata
-        if not run_path and 'run_path' in self.metadata:
-            run_path = self.metadata['run_path']
-
-        # read the out.tglf.width_spectrum file
-        lines = read_file(path=run_path,file='out.tglf.width_spectrum')
-
-        # if the file was successfully read
-        if lines:
-            # set file dependent variables
-            header = 3
-            width_list = []
-
-            description = lines[0].strip()
-            # read the spectrum into a list
-            for line in lines[header:]:
-                width_list.append(float(line.strip()))
-
-            width_spectrum = {'gaussian_width':list_to_array(width_list)}
-            if self.collect:
-                merge_trees(width_spectrum,self.output)
-            else:
-                width_spectrum.update({'description':description})
-                return width_spectrum
+    def read_width_spectrum(self,run_path=None,nky=None):
+        self.read_var_spectrum(run_path=run_path,file='out.tglf.width_spectrum',header=3,nky=nky,var='gaussian_width')
 
     def write_input(self,path=None,file='input.tglf',header=True,verbose=False,ignore_defaults=True,overwrite=True):
         # if unspecified, for convenience check for run path in metadata
