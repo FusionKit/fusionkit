@@ -131,7 +131,9 @@ class TGLF(DataSpine):
 
     # I/O functions  
     def read_ave_p0_spectrum(self,run_path=None,nky=None):
-        self.read_var_spectrum(run_path=run_path,file='out.tglf.ave_p0_spectrum',header=1,nky=nky,var='ave_p0')
+        ave_p0 = self.read_var_spectrum(run_path=run_path,file='out.tglf.ave_p0_spectrum',header=3,nky=nky,var='ave_p0')
+        if not self.collect:
+            return ave_p0
         
     def read_density_spectrum(self,run_path=None,nspecies=None):
         self.read_fluctuation_spectrum(run_path=run_path,file='out.tglf.density_spectrum',symbol='n',nspecies=nspecies)
@@ -239,7 +241,7 @@ class TGLF(DataSpine):
             description = lines[0].strip()
             # read the index limits
             [_nky,_nmodes] = [int(limit) for limit in lines[3].strip().split()]
-            if not nky:
+            if not nky or not nky <= _nky:
                 nky = _nky
             if not nmodes or not nmodes <= _nmodes:
                 nmodes = _nmodes
@@ -935,7 +937,9 @@ class TGLF(DataSpine):
                 return scalar_sat_params
 
     def read_spectral_shift(self,run_path=None,nky=None):
-        self.read_var_spectrum(run_path=run_path,file='out.tglf.spectral_shift',header=5,nky=nky,var='spectral_shift')
+        spectral_shift = self.read_var_spectrum(run_path=run_path,file='out.tglf.spectral_shift_spectrum',header=5,nky=nky,var='spectral_shift')
+        if not self.collect:
+            return spectral_shift
 
     def read_sum_flux_spectrum(self,run_path=None,nspecies=None,nfields=None):
         # if unspecified, for convenience check for run path in metadata
@@ -1045,17 +1049,19 @@ class TGLF(DataSpine):
         if lines and header:
             # set file dependent variables
             _list = []
-
+            _nky = autotype(lines[header-1].strip().split()[-1])
+            if not nky or not nky <= _nky:
+                nky = _nky
             description = lines[0].strip()
             # read the spectrum into a list
             for line in lines[header:header+nky]:
                 _list.append(float(line.strip()))
             
-            var_spectrum = {var:list_to_array(_list)}
             if self.collect:
-                merge_trees(var_spectrum,self.output)
+                merge_trees({var:list_to_array(_list)},self.output)
+                merge_trees({'nky':nky},self.metadata)
             else:
-                var_spectrum.update({'description':description})
+                var_spectrum = {'description':description, 'nky':nky, var:list_to_array(_list)}
                 return var_spectrum
     
     def read_wavefunction(self,run_path=None,file=None,nmodes=None,nfields=None):
@@ -1142,7 +1148,9 @@ class TGLF(DataSpine):
                 return eigenfunction
 
     def read_width_spectrum(self,run_path=None,nky=None):
-        self.read_var_spectrum(run_path=run_path,file='out.tglf.width_spectrum',header=3,nky=nky,var='gaussian_width')
+        gaussian_width = self.read_var_spectrum(run_path=run_path,file='out.tglf.width_spectrum',header=3,nky=nky,var='gaussian_width')
+        if not self.collect:
+            return gaussian_width
 
     def write_input(self,path=None,file='input.tglf',header=True,verbose=False,ignore_defaults=True,overwrite=True):
         # if unspecified, for convenience check for run path in metadata
