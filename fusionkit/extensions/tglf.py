@@ -879,7 +879,7 @@ class TGLF(DataSpine):
                 sat_geo_spectrum = {'description':description, 'sat_geo':sat_geo,'nmodes':nmodes}
                 return sat_geo_spectrum
 
-    def read_scalar_saturation_parameters(self,run_path=None):
+    def read_scalar_sat_parameters(self,run_path=None):
         # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
@@ -1388,7 +1388,7 @@ class TGLF(DataSpine):
                         'out.tglf.QL_flux_spectrum':{'method':self.read_QL_flux_spectrum,'essential':False},
                         'out.tglf.run':{'method':self.read_run,'essential':False},
                         'out.tglf.sat_geo_spectrum':{'method':self.read_sat_geo_spectrum,'essential':False},
-                        'out.tglf.scalar_saturation_parameters':{'method':self.read_scalar_saturation_parameters,'essential':True},
+                        'out.tglf.scalar_saturation_parameters':{'method':self.read_scalar_sat_parameters,'essential':True},
                         'out.tglf.spectral_shift':{'method':self.read_spectral_shift,'essential':False},
                         'out.tglf.sum_flux_spectrum':{'method':self.read_sum_flux_spectrum,'essential':True},
                         'out.tglf.temperature_spectrum':{'method':self.read_temperature_spectrum,'essential':False},
