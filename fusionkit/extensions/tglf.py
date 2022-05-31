@@ -131,7 +131,7 @@ class TGLF(DataSpine):
 
     # I/O functions  
     def read_ave_p0_spectrum(self,run_path=None,nky=None):
-        self.read_var_spectrum(run_path=run_path,file='out.tglf.width_spectrum',header=3,nky=nky,var='gaussian_width')
+        self.read_var_spectrum(run_path=run_path,file='out.tglf.ave_p0_spectrum',header=1,nky=nky,var='ave_p0')
         
     def read_density_spectrum(self,run_path=None,nspecies=None):
         self.read_fluctuation_spectrum(run_path=run_path,file='out.tglf.density_spectrum',symbol='n',nspecies=nspecies)
