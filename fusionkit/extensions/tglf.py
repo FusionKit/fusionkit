@@ -907,8 +907,14 @@ class TGLF(DataSpine):
             # go line by line
             for i_line,line in enumerate(lines[header:]):
                 # check if the line contains a SAT header
-                if '!' and 'SAT' in line:
-                    sat = line.strip().split()[1]
+                if '!' in line and 'SAT' in line:
+                    sat = ''
+                    sats = [string.strip() for string in line.strip().split('SAT') if '!' not in string]
+                    i_sats = [sat_int[0] for sat_int in sats if isinstance(autotype(sat_int[0]),int)]
+                    for i_sat in i_sats:
+                        if len(sat) > 0:
+                            sat +='/'
+                        sat += 'SAT{}'.format(i_sat)
                     if sat not in scalar_sat_params:
                         scalar_sat_params[sat] = {}
                 # check if the line contains a key=value pair
