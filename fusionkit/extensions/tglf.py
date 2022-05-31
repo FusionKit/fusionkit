@@ -9,16 +9,17 @@ NOTE: run_path needs to end with a /
 import os
 import copy
 
-import matplotlib.pyplot as plt
-from numpy import sign
 import numpy as np
+import matplotlib.pyplot as plt
 
 from ..core.dataspine import DataSpine
 from ..core.utils import *
 
 CURSOR_UP_ONE = '\x1b[1A'
-ERASE_LINE = '\x1b[2K'
-#ERASE_LINE = '\x1b[1M' #for Windows
+if os.uname().sysname.lower() in ['darwin','linux','linux2']:
+    ERASE_LINE = '\x1b[2K'
+else:
+    ERASE_LINE = '\x1b[1M' #for Windows
 
 ## TGLF
 class TGLF(DataSpine):
@@ -1639,7 +1640,7 @@ class TGLF(DataSpine):
                 else:
                     label_ = label
                 plt.plot(ky,omega[key_mode],'.-',label=label_)
-                if sign(min(omega[key_mode])) != sign(max(omega[key_mode])) and not axline:
+                if np.sign(min(omega[key_mode])) != np.sign(max(omega[key_mode])) and not axline:
                     plt.axhline(0,linewidth=0.75,color='black')
                     axline = True
                     ax = plt.gca()
@@ -1710,7 +1711,7 @@ class TGLF(DataSpine):
                             mode = [np.real(eigenfunction[key_mode]),np.imag(eigenfunction[key_mode])]
                             plt.plot(theta/np.pi,mode[i_reim],label=label+' {}({})'.format(key_reim,key_field),color=color_reim[i_reim])
                         plt.plot(theta/np.pi,np.sqrt(mode[0]**2+mode[1]**2),label=label+' ||{}||'.format(key_field),color='black')
-                        if sign(min(mode[0])) != sign(max(mode[0])) or sign(min(mode[1])) != sign(max(mode[1])) and not axline:
+                        if np.sign(min(mode[0])) != np.sign(max(mode[0])) or np.sign(min(mode[1])) != np.sign(max(mode[1])) and not axline:
                             plt.axhline(0,linewidth=0.75,color='black')
                             axline = True
                         plt.title('ky={:.2f}, mode: {}'.format(ky,key_mode))
