@@ -1218,9 +1218,231 @@ class TGLF(DataSpine):
         """
         return
 
-    def _tglf_to_ids():
+    def _tglf_to_ids(self):
         """Convert a TGLF object to IMAS gyrokinetic IDS/GKDB format.
         """
+        self.ids = {}
+        
+        self.ids['ids_properties'] = {}
+        self.ids['ids_properties']['comment'] = 'This gyrokinetic run performed with the code TGLF'
+        self.ids['ids_properties']['homogeneous_time'] = 2
+        self.ids['ids_properties']['provider'] = os.environ.get('USERNAME')
+        self.ids['ids_properties']['creation_date'] = self.metadata['run_date'] + '   ' + self.metadata['run_time']
+        self.ids['ids_properties']['version_put'] = {}
+        self.ids['ids_properties']['version_put']['data_dictionary'] = 'Last change occured on version: 3.32.0'
+        self.ids['ids_properties']['version_put']['access_layer'] = 'Last change occured on version: 3.32.0'
+        self.ids['ids_properties']['version_put']['access_layer_language'] = 'Python'
+        self.ids['ids_properties']['provenance'] = {}
+        self.ids['ids_properties']['provenance']['node'] = {}
+        self.ids['ids_properties']['provenance']['node'][1] = {}
+        self.ids['ids_properties']['provenance']['node'][1]['path'] = ''
+        self.ids['ids_properties']['provenance']['node'][1]['sources'] = ''
+        
+        self.ids['tag'] = {}
+        self.ids['tag']['name'] = 'no tag'
+        self.ids['tag']['comment'] = 'no comment'
+        
+        self.ids['normalizing_quantities'] = {}
+        self.ids['normalizing_quantities']['t_e'] = np.nan
+        self.ids['normalizing_quantities']['n_e'] = np.nan
+        self.ids['normalizing_quantities']['r'] = np.nan
+        self.ids['normalizing_quantities']['b_field_tor'] = np.nan
+        
+        self.ids['flux_surface'] = {}
+        self.ids['flux_surface']['r_minor_norm'] = np.nan
+        self.ids['flux_surface']['elongation'] = np.nan
+        self.ids['flux_surface']['triangularity_upper'] = np.nan
+        self.ids['flux_surface']['triangularity_lower'] = np.nan
+        self.ids['flux_surface']['q'] = np.nan
+        self.ids['flux_surface']['magnetic_shear_r_minor'] = np.nan
+        self.ids['flux_surface']['pressure_gradient_norm'] = np.nan
+        self.ids['flux_surface']['ip_sign'] = np.nan
+        self.ids['flux_surface']['b_field_tor_sign'] = np.nan
+        self.ids['flux_surface']['shape_coefficients_c'] = [np.nan,np.nan]
+        self.ids['flux_surface']['dc_dr_minor_norm'] = [np.nan,np.nan]
+        self.ids['flux_surface']['shape_coefficients_s'] = [np.nan,np.nan]
+        self.ids['flux_surface']['ds_dr_minor_norm'] = [np.nan,np.nan]
+        
+        self.ids['model'] = {}
+        self.ids['model']['include_centrifugal_effects'] = 0
+        self.ids['model']['include_a_field_parallel'] = 0
+        self.ids['model']['include_b_field_parallel'] = 0
+        self.ids['model']['include_full_curvature_drift'] = 0
+        self.ids['model']['collisions_pitch_only'] = 0
+        self.ids['model']['collisions_momentum_conservation'] = 0
+        self.ids['model']['collisions_energy_conservation'] = 0
+        self.ids['model']['collisions_finite_larmor_radius'] = 0
+        self.ids['model']['initial_value_run'] = 0
+        self.ids['model']['non_linear_run'] = 0
+        self.ids['model']['time_interval_norm'] = [np.nan,np.nan]
+        
+        self.ids['species_all'] = {}
+        self.ids['species_all']['beta_reference'] = np.nan
+        self.ids['species_all']['velocity_tor_norm'] = np.nan
+        self.ids['species_all']['zeff'] = np.nan
+        self.ids['species_all']['debye_length_reference'] = np.nan
+        self.ids['species_all']['shearing_rate_norm'] = np.nan
+        
+        self.ids['species'] = {}
+        number_of_species = self.metadata['nspecies']
+        for i in range(number_of_species):
+            self.ids['species'][i+1] = {}
+            self.ids['species'][i+1]['charge_norm'] = np.nan
+            self.ids['species'][i+1]['mass_norm'] = np.nan
+            self.ids['species'][i+1]['density_norm'] = np.nan
+            self.ids['species'][i+1]['density_log_gradient_norm'] = np.nan
+            self.ids['species'][i+1]['temperature_norm'] = np.nan
+            self.ids['species'][i+1]['temperature_log_gradient_norm'] = np.nan
+            self.ids['species'][i+1]['velocity_tor_gradient_norm'] = np.nan
+        
+        self.ids['collisions'] = {}
+        self.ids['collisions']['collisionality_norm'] = [[np.nan],[np.nan]]
+        
+        self.ids['wavevector'] = {}
+        number_of_ky = self.metadata['nky']
+        number_of_modes = self.metadata['nmodes']
+        for i in range(number_of_ky):
+            self.ids['wavevector'][i+1] = {}
+            self.ids['wavevector'][i+1]['radial_component_norm'] = np.nan
+            self.ids['wavevector'][i+1]['binormal_component_norm'] = np.nan
+            self.ids['wavevector'][i+1]['poloidal_turns'] = np.nan
+            self.ids['wavevector'][i+1]['eigenmode'] = {}
+            for j in range(number_of_modes):
+                self.ids['wavevector'][i+1]['eigenmode'][j+1] = {}
+                self.ids['wavevector'][i+1]['eigenmode'][j+1]['growth_rate_norm'] = np.nan
+                self.ids['wavevector'][i+1]['eigenmode'][j+1]['frequency_norm'] = np.nan
+                self.ids['wavevector'][i+1]['eigenmode'][j+1]['growth_rate_tolerance'] = np.nan
+                self.ids['wavevector'][i+1]['eigenmode'][j+1]['phi_potential_perturbed_weight'] = [np.nan,np.nan]
+                self.ids['wavevector'][i+1]['eigenmode'][j+1]['phi_potential_perturbed_parity'] = [np.nan,np.nan]
+                self.ids['wavevector'][i+1]['eigenmode'][j+1]['a_field_parallel_perturbed_weight'] = [np.nan,np.nan]
+                self.ids['wavevector'][i+1]['eigenmode'][j+1]['a_field_parallel_perturbed_parity'] = [np.nan,np.nan]
+                self.ids['wavevector'][i+1]['eigenmode'][j+1]['b_field_parallel_perturbed_weight'] = [np.nan,np.nan]
+                self.ids['wavevector'][i+1]['eigenmode'][j+1]['b_field_parallel_perturbed_parity'] = [np.nan,np.nan]
+                self.ids['wavevector'][i+1]['eigenmode'][j+1]['poloidal_angle'] = [np.nan,np.nan]
+                self.ids['wavevector'][i+1]['eigenmode'][j+1]['phi_potential_perturbed_norm'] = [[np.nan],[np.nan]]
+                self.ids['wavevector'][i+1]['eigenmode'][j+1]['a_field_parallel_perturbed_norm'] = [[np.nan],[np.nan]]
+                self.ids['wavevector'][i+1]['eigenmode'][j+1]['b_field_parallel_perturbed_norm'] = [[np.nan],[np.nan]]
+                self.ids['wavevector'][i+1]['eigenmode'][j+1]['time_norm'] = [np.nan,np.nan]
+                self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'] = {}
+                for k in range(number_of_species):
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1] = {}
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_gyrocenter'] = {}
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_gyrocenter']['density'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_gyrocenter']['density_gyroav'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_gyrocenter']['j_parallel'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_gyrocenter']['j_parallel_gyroav'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_gyrocenter']['pressure_parallel'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_gyrocenter']['pressure_parallel_gyroav'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_gyrocenter']['pressure_perpendicular'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_gyrocenter']['pressure_perpendicular_gyroav'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_gyrocenter']['heat_flux_parallel'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_gyrocenter']['heat_flux_parallel_gyroav'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_gyrocenter']['v_parallel_energy_perpendicular'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_gyrocenter']['v_parallel_energy_perpendicular_gyroav'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_gyrocenter']['v_perpendicular_square_energy'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_gyrocenter']['v_perpendicular_square_energy_gyroav'] = [[np.nan],[np.nan]]                    
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_particle'] = {}
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_particle']['density'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_particle']['j_parallel'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_particle']['pressure_parallel'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_particle']['pressure_perpendicular'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_particle']['heat_flux_parallel'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_particle']['v_parallel_energy_perpendicular'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['moments_norm_particle']['v_perpendicular_square_energy'] = [[np.nan],[np.nan]]
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter'] = {}
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter']['particles_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter']['particles_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter']['particles_b_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter']['energy_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter']['energy_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter']['energy_b_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter']['momentum_tor_parallel_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter']['momentum_tor_parallel_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter']['momentum_tor_parallel_b_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter']['momentum_tor_perpendicular_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter']['momentum_tor_perpendicular_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter']['momentum_tor_perpendicular_b_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter_rotating_frame'] = {}
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter_rotating_frame']['particles_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter_rotating_frame']['particles_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter_rotating_frame']['particles_b_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter_rotating_frame']['energy_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter_rotating_frame']['energy_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter_rotating_frame']['energy_b_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_b_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_b_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle'] = {}
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle']['particles_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle']['particles_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle']['particles_b_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle']['energy_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle']['energy_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle']['energy_b_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle']['momentum_tor_parallel_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle']['momentum_tor_parallel_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle']['momentum_tor_parallel_b_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle']['momentum_tor_perpendicular_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle']['momentum_tor_perpendicular_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle']['momentum_tor_perpendicular_b_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle_rotating_frame'] = {}
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle_rotating_frame']['particles_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle_rotating_frame']['particles_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle_rotating_frame']['particles_b_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle_rotating_frame']['energy_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle_rotating_frame']['energy_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle_rotating_frame']['energy_b_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle_rotating_frame']['momentum_tor_parallel_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle_rotating_frame']['momentum_tor_parallel_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle_rotating_frame']['momentum_tor_parallel_b_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle_rotating_frame']['momentum_tor_perpendicular_phi_potential'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle_rotating_frame']['momentum_tor_perpendicular_a_field_parallel'] = np.nan
+                    self.ids['wavevector'][i+1]['eigenmode'][j+1]['fluxes_moments'][k+1]['fluxes_norm_particle_rotating_frame']['momentum_tor_perpendicular_b_field_parallel'] = np.nan
+                    
+            
+            
+            
+        self.ids['fluxes_integrated_norm'] = {}
+        for i in range(number_of_species):
+            self.ids['fluxes_integrated_norm'][i+1] = {}
+            self.ids['fluxes_integrated_norm'][i+1]['particles_phi_potential'] = np.nan
+            self.ids['fluxes_integrated_norm'][i+1]['particles_a_field_parallel'] = np.nan
+            self.ids['fluxes_integrated_norm'][i+1]['particles_b_field_parallel'] = np.nan
+            self.ids['fluxes_integrated_norm'][i+1]['energy_phi_potential'] = np.nan
+            self.ids['fluxes_integrated_norm'][i+1]['energy_a_field_parallel'] = np.nan
+            self.ids['fluxes_integrated_norm'][i+1]['energy_b_field_parallel'] = np.nan
+            self.ids['fluxes_integrated_norm'][i+1]['momentum_tor_parallel_phi_potential'] = np.nan
+            self.ids['fluxes_integrated_norm'][i+1]['momentum_tor_parallel_a_field_parallel'] = np.nan
+            self.ids['fluxes_integrated_norm'][i+1]['momentum_tor_parallel_b_field_parallel'] = np.nan
+            self.ids['fluxes_integrated_norm'][i+1]['momentum_tor_perpendicular_phi_potential'] = np.nan
+            self.ids['fluxes_integrated_norm'][i+1]['momentum_tor_perpendicular_a_field_parallel'] = np.nan
+            self.ids['fluxes_integrated_norm'][i+1]['momentum_tor_perpendicular_b_field_parallel'] = np.nan
+        
+        
+        self.ids['code'] = {}
+        self.ids['code']['name'] = 'TGLF'
+        self.ids['code']['commit'] = self.metadata['version']
+        self.ids['code']['version'] = self.metadata['framework_version']
+        self.ids['code']['repository'] = 'https://gafusion.github.io/doc/tglf.html'
+        self.ids['code']['parameters'] = ''
+        self.ids['code']['output_flag'] = [0]
+        self.ids['code']['library'] = {}
+        self.ids['code']['library'][1] = {}
+        
+        self.ids['time'] = [np.nan,np.nan]
+        
+        
+        
+            
+        
+        
+        
+        
+        
+        
         return
 
     def _ids_to_tglf():
