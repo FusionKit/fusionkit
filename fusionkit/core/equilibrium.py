@@ -1273,7 +1273,7 @@ class Equilibrium(DataSpine):
         fs['kappa'] = (fs['Z_top'] - fs['Z_bottom'])/(2*fs['r'])
 
         # generate theta grid and interpolate the flux surface trace to the Miller parameterisation
-        fs['theta'] = np.linspace(0,2*np.pi,3600)
+        fs['theta'] = np.linspace(0,2*np.pi,720)
         R_miller = fs['R0'] + fs['r']*np.cos(fs['theta']+x*np.sin(fs['theta']))
         Z_miller = np.hstack((interpolate.interp1d(R_fs[:int(len(R_fs)/2)],Z_fs[:int(len(R_fs)/2)],bounds_error=False)(R_miller[:int(len(fs['theta'])/2)]),interpolate.interp1d(R_fs[int(len(R_fs)/2):],Z_fs[int(len(R_fs)/2):],bounds_error=False)(R_miller[int(len(fs['theta'])/2):])))
 
