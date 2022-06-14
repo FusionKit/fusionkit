@@ -1288,9 +1288,14 @@ class TGLF(DataSpine):
 
         return self
 
-    def run_1d_scan(self,path=None,var=None,values=[],verbose=False,collect_essential=False,return_self=True):
+    def run_1d_scan(self,path=None,var=None,values=[],verbose=False,collect_essential=False,write_scan=False,return_self=True):
         # check if scan variable was provided
         if var:
+            if not self.input:
+                try:
+                    self.read_input()
+                except:
+                    pass
             # pre-fill a value for the scan variable in case it is not already in input
             if var not in self.input:
                 if values:
@@ -1303,13 +1308,23 @@ class TGLF(DataSpine):
         scan_output = {var:{}}
         _collect = copy.deepcopy(self.collect)
         _output = copy.deepcopy(self.output)
+        _run_path = copy.deepcopy(self.metadata['run_path'])
+        if self.input:
+            _var_value = copy.deepcopy(self.input[var])
         self.collect = True
 
         if verbose:
             print('Running TGLF 1D scan...')
         for value in values:
+            if verbose or verbose==0:
+                # print a progress %
+                print('{} TGLF 1D scan {}% complete'.format(ERASE_LINE,round(100*(find(value,values))/len(values))),flush=False,end='\r')
             # update the scan variable value
             self.input[var] = float(value)
+            if write_scan:
+                self.metadata['run_path'] = _run_path+'/{}={:.2f}'.format(var,value)
+                if not os.path.isdir(self.metadata['run_path']):
+                    os.makedirs(self.metadata['run_path'])
             # generate a new input.tglf file
             self.write_input(path=path,ignore_defaults=False,header=False)
             # reset output dictionary
@@ -1318,13 +1333,15 @@ class TGLF(DataSpine):
             self.run(path=path,collect_essential=collect_essential)
             # store the results in the scan_output dict
             scan_output[var].update({value:copy.deepcopy(self.output)})
-            # print a progress %
-            print('{} TGLF 1D scan {}% complete'.format(ERASE_LINE,round(100*(find(value,values))/len(values))),flush=False,end='\r')
         #print(ERASE_LINE)
 
         # put back the output present before the scan
         self.collect = _collect
         self.output = _output
+        self.metadata['run_path'] = _run_path
+        if _var_value:
+            self.input[var] = _var_value
+            self.write_input()
         
         if verbose:
             print('{}TGLF 1D scan complete...'.format(ERASE_LINE))
@@ -1332,18 +1349,32 @@ class TGLF(DataSpine):
             if 'scans' not in self.output:
                 self.output['scans'] = {var:scan_output[var]}
             else:
-                self.output['scans'].update({var:scan_output[var]})    
+                self.output['scans'].update({var:scan_output[var]})
         else:
             return scan_output
 
-    def run_2d_scan(self,path=None,var_y=None,values_y=[],var_x=None,values_x=[],verbose=False,collect_essential=False,return_self=True):
-        if var_y not in self.input:
-            if values_y:
-                self.input[var_y]=values_y[0]
-            else:
-                raise ValueError('Specify scan values for {}!'.format(var_y))
+    def run_2d_scan(self,path=None,var_y=None,values_y=[],var_x=None,values_x=[],verbose=False,collect_essential=False,write_scan=False,return_self=True):
+        if var_y and var_x:
+            if not self.input:
+                try:
+                    self.read_input()
+                except:
+                    pass
+            if var_y not in self.input:
+                if values_y:
+                    self.input[var_y]=values_y[0]
+                else:
+                    raise ValueError('Specify scan values for {}!'.format(var_y))
+        else:
+            raise ValueError('Specify scan variables!')
         
         scan_output = {var_y:{}}
+        _collect = copy.deepcopy(self.collect)
+        _output = copy.deepcopy(self.output)
+        _run_path = copy.deepcopy(self.metadata['run_path'])
+        if self.input:
+            _var_y_value = copy.deepcopy(self.input[var_y])
+        self.collect = True
 
         if verbose:
             print('Running TGLF 2D scan...\n')
@@ -1351,15 +1382,35 @@ class TGLF(DataSpine):
             if verbose:
                 # print a progress %, ANSI escape squences are used to move the cursor to update the multiline progress print
                 print('{} TGLF 2D scan {}% complete\n'.format(CURSOR_UP_ONE + ERASE_LINE,round(100*(find(value,values_y))/len(values_y))),flush=False,end='\r')
+            # update the y variable scan value
             self.input[var_y] = float(value)
-            self.run_1d_scan(path=path,var=var_x,values=values_x,collect_essential=collect_essential,return_self=True)
+            if write_scan:
+                self.metadata['run_path'] = _run_path+'/{}={:.2f}'.format(var_y,value)
+                if not os.path.isdir(self.metadata['run_path']):
+                    os.makedirs(self.metadata['run_path'])
+            # run a 1D scan for the x variable
+            if verbose:
+                _verbose=0
+            self.run_1d_scan(path=path,var=var_x,values=values_x,verbose=_verbose,collect_essential=collect_essential,write_scan=write_scan,return_self=True)
+            # 
             scan_output[var_y].update({value:copy.deepcopy(self.output['scans'])})
             del self.output['scans'][var_x]
+        
+        # put back the output present before the scan
+        self.collect = _collect
+        self.output = _output
+        self.metadata['run_path'] = _run_path
+        if _var_y_value:
+            self.input[var_y] = _var_y_value
+            self.write_input()
         
         if verbose:
             print('{}TGLF 2D scan complete...\n{}'.format(CURSOR_UP_ONE+ERASE_LINE,ERASE_LINE+CURSOR_UP_ONE))
         if return_self:
-            self.output['scans'].update({var_y:scan_output[var_y]})
+            if 'scans' not in self.output:
+                self.output['scans'] = {var_y:scan_output[var_y]}
+            else:
+                self.output['scans'].update({var_y:scan_output[var_y]})
         else:
             return scan_output
 
@@ -1369,29 +1420,30 @@ class TGLF(DataSpine):
             run_path = self.metadata['run_path']
         
         # check for and store any previous runs/output
-        default_keys = ['species', 'eigenvalues', 'eigenfunctions', 'fields', 'input_gen', 'ky', 'prec', 'sat_geo', 'sat_scalar_params', 'spectral_shift', 'gaussian_width']
+        default_keys = ['ave_p0', 'species', 'eigenvalues', 'eigenfunctions', 'fields', 'input_gen', 'ky', 'prec', 'sat_geo', 'sat_scalar_params', 'spectral_shift', 'gaussian_width']
         self.collate_run(select_keys=default_keys)
 
         output_run = [file for file in os.listdir(run_path) if os.path.isfile(os.path.join(run_path,file))]
 
         output_files = {'out.tglf.version':{'method':self.read_version,'essential':True},
                         'input.tglf.gen':{'method':self.read_input_gen,'essential':True},
-                        'out.tglf.density_spectrum':{'method':self.read_density_spectrum,'essential':False},
+                        'out.tglf.ave_p0_spectrum':{'method':self.read_ave_p0_spectrum,'essential':False},
+                        'out.tglf.density_spectrum':{'method':self.read_density_spectrum,'essential':True},
                         'out.tglf.eigenvalue_spectrum':{'method':self.read_eigenvalue_spectrum,'essential':True},
                         'out.tglf.field_spectrum':{'method':self.read_field_spectrum,'essential':False},
                         'out.tglf.gbflux':{'method':self.read_gbflux,'essential':True},
                         'out.tglf.grid':{'method':self.read_grid,'essential':False},
                         'out.tglf.intensity_spectrum':{'method':self.read_intensity_spectrum,'essential':False},
                         'out.tglf.ky_spectrum':{'method':self.read_ky_spectrum,'essential':True},
-                        'out.tglf.nsts_crossphase_spectrum':{'method':self.read_nsts_crossphase_spectrum,'essential':True},
-                        'out.tglf.prec':{'method':self.read_prec,'essential':True},
+                        'out.tglf.nsts_crossphase_spectrum':{'method':self.read_nsts_crossphase_spectrum,'essential':False},
+                        'out.tglf.prec':{'method':self.read_prec,'essential':False},
                         'out.tglf.QL_flux_spectrum':{'method':self.read_QL_flux_spectrum,'essential':False},
                         'out.tglf.run':{'method':self.read_run,'essential':False},
                         'out.tglf.sat_geo_spectrum':{'method':self.read_sat_geo_spectrum,'essential':False},
-                        'out.tglf.scalar_saturation_parameters':{'method':self.read_scalar_sat_parameters,'essential':True},
+                        'out.tglf.scalar_saturation_parameters':{'method':self.read_scalar_sat_parameters,'essential':False},
                         'out.tglf.spectral_shift':{'method':self.read_spectral_shift,'essential':False},
-                        'out.tglf.sum_flux_spectrum':{'method':self.read_sum_flux_spectrum,'essential':True},
-                        'out.tglf.temperature_spectrum':{'method':self.read_temperature_spectrum,'essential':False},
+                        'out.tglf.sum_flux_spectrum':{'method':self.read_sum_flux_spectrum,'essential':False},
+                        'out.tglf.temperature_spectrum':{'method':self.read_temperature_spectrum,'essential':True},
                         'out.tglf.width_spectrum':{'method':self.read_width_spectrum,'essential':False}}
 
         # read all the files present in the specified run path, taking into account essential status
