@@ -1180,7 +1180,7 @@ class TGLF(DataSpine):
                     file_check = False
                 else:
                     file_check = True
-                f = open(path+file,"w+")
+                f = open(path+'/'+file,"w+")
 
                 if header:
                     for message in header_list:
@@ -1322,7 +1322,7 @@ class TGLF(DataSpine):
             # update the scan variable value
             self.input[var] = float(value)
             if write_scan:
-                self.metadata['run_path'] = _run_path+'/{}={:.2f}'.format(var,value)
+                self.metadata['run_path'] = _run_path+'/{}={:.2f}/'.format(var,value)
                 if not os.path.isdir(self.metadata['run_path']):
                     os.makedirs(self.metadata['run_path'])
             # generate a new input.tglf file
@@ -1385,7 +1385,7 @@ class TGLF(DataSpine):
             # update the y variable scan value
             self.input[var_y] = float(value)
             if write_scan:
-                self.metadata['run_path'] = _run_path+'/{}={:.2f}'.format(var_y,value)
+                self.metadata['run_path'] = _run_path+'/{}={:.2f}/'.format(var_y,value)
                 if not os.path.isdir(self.metadata['run_path']):
                     os.makedirs(self.metadata['run_path'])
             # run a 1D scan for the x variable
