@@ -1000,12 +1000,13 @@ class TGLF(DataSpine):
             
             # add the total flux electrostatic and electromagnetic fluxes
             for key_species in species.keys():
-                total = 0.
                 fluxes = species[key_species]['fluxes']
                 for key_flux in _fluxes['fluxes'].keys():
+                    total = 0.
                     if len(fluxes[key_flux].keys()) > 1:
                         for key_field in fluxes[key_flux]:
-                            total += fluxes[key_flux][key_field]
+                            if key_field not in ['total','sum']:
+                                total += fluxes[key_flux][key_field]
                         fluxes[key_flux].update({'sum':total})
 
             description = ', '.join(_description)+' by field per species'
