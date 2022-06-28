@@ -997,7 +997,7 @@ class TGLF(DataSpine):
             
             # convert to arrays
             species = list_to_array(species)
-            
+            self.metadata['nfields'] = key_field                               #get the value for 'nfields' from the file 'out.tglf.sum_flux_spectrum'
             # add the total flux electrostatic and electromagnetic fluxes
             for key_species in species.keys():
                 total = 0.
@@ -1127,8 +1127,23 @@ class TGLF(DataSpine):
                         # otherwise using a sliding window on the row to get the appropriate mode data
                         else:
                             mode.append(row[i_field+(i_mode*(2*nfields))])
+                if nmodes == 0:
+                    key_mode = 0
+                    for i_field,key_field in enumerate(fields.keys()):
+                        if key_mode not in fields[key_field]:
+                            fields[key_field][key_mode] = []
+                        mode = fields[key_field][key_mode]
+                        # always get the theta value at the start of the line, regardless of mode number
+                        if key_field == 'theta':
+                            mode.append(row[i_field])
+                        # otherwise using a sliding window on the row to get the appropriate mode data
+                        else:
+                            mode.append(row[0])
             list_to_array(fields)
-            fields['theta'] = fields['theta'][1]
+            if nmodes == 0:
+                fields['theta'] = fields['theta'][0]
+            else:
+                fields['theta'] = fields['theta'][1]
             
             # prep the eigenfunction storage
             for key_field in ['theta']+fields_list:

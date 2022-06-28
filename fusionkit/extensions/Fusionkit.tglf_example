@@ -1,0 +1,24 @@
+See https://gafusion.github.io/doc/tglf/tglf_table.html
+--------------------------------------------------------
+This is a quick tutorial on how to use Fusionkit for a TGLF run.
+In this example, we will change the value of 'RLTS_1'.
+--------------------------------------------------------
+
+
+import fusionkit    				      #Import the fusionkit module.
+		                                      #If ModuleNotFoundError: No module named 'fusionkit' do:
+						      #  In [1]: import sys
+				 		      #  In [2]: sys.path.append("/home/.../fusionkit")
+
+test = fusionkit.TGLF()                               #Make an object of the tglf class named 'test'
+
+test.metadata['run_path'] = '/home/.../repertory/'    #Set the run path. 
+						      #If 'repertory' do not exist, it will make a directory 
+						      #called 'repertory' in the run path that was set,
+						      #overwise it will 'link' the object test to the values inside 'repertory'.
+
+test.input['RLTS_1'] = 12.                            #Set the value of 'RLTS_1' in the input file
+
+test.write_input()                                    #Write the changed inputs in the file'/home/.../repertory/input.tglf'
+
+test.run(eigenfunctions=True)	                      #Run the simulation
