@@ -995,9 +995,11 @@ class TGLF(DataSpine):
                     for i_flux,key_flux in enumerate(_fluxes['fluxes'].keys()):
                         fluxes[key_flux][_fields[key_field-1]].append(row[i_flux])
             
+            #get the value for 'nfields'
+            if not nfields:
+                nfields = key_field
             # convert to arrays
             species = list_to_array(species)
-            self.metadata['nfields'] = key_field                               #get the value for 'nfields' from the file 'out.tglf.sum_flux_spectrum'
             # add the total flux electrostatic and electromagnetic fluxes
             for key_species in species.keys():
                 total = 0.
@@ -1071,7 +1073,7 @@ class TGLF(DataSpine):
                 var_spectrum = {'description':description, 'nky':nky, var:list_to_array(_list)}
                 return var_spectrum
     
-    def read_wavefunction(self,run_path=None,file=None,nmodes=None,nfields=None):
+    def read_wavefunction(self,run_path=None,file=None,nmodes=None,nfields=None,verbose=True):
         # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
@@ -1141,6 +1143,9 @@ class TGLF(DataSpine):
                             mode.append(row[0])
             list_to_array(fields)
             if nmodes == 0:
+                if verbose:
+                    print('Warning, the number of modes is equal to 0')
+                    verbose = False
                 fields['theta'] = fields['theta'][0]
             else:
                 fields['theta'] = fields['theta'][1]
@@ -1526,11 +1531,16 @@ class TGLF(DataSpine):
         return self
 
     def run_1d_scan(self,path=None,var=None,values=[],verbose=False,collect_essential=False,return_self=True):
+        
+        # if unspecified, for convenience check for run path in metadata
+        if not path and 'run_path' in self.metadata:
+            path = self.metadata['run_path']
+        
         # check if scan variable was provided
         if var:
             # pre-fill a value for the scan variable in case it is not already in input
             if var not in self.input:
-                if values:
+                if values.any():
                     self.input[var] = values[0]
                 else:
                     raise ValueError('Specify scan values for {}!'.format(var))
@@ -1556,7 +1566,7 @@ class TGLF(DataSpine):
             # store the results in the scan_output dict
             scan_output[var].update({value:copy.deepcopy(self.output)})
             # print a progress %
-            print('{} TGLF 1D scan {}% complete'.format(ERASE_LINE,round(100*(find(value,values))/len(values))),flush=False,end='\r')
+            print('{} TGLF 1D scan {}% complete \n'.format(ERASE_LINE,round(100*(find(value,values))/len(values))),flush=False,end='\r')
         #print(ERASE_LINE)
 
         # put back the output present before the scan
@@ -1575,7 +1585,7 @@ class TGLF(DataSpine):
 
     def run_2d_scan(self,path=None,var_y=None,values_y=[],var_x=None,values_x=[],verbose=False,collect_essential=False,return_self=True):
         if var_y not in self.input:
-            if values_y:
+            if values_y.any():
                 self.input[var_y]=values_y[0]
             else:
                 raise ValueError('Specify scan values for {}!'.format(var_y))
