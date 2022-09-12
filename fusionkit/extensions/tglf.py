@@ -1143,9 +1143,8 @@ class TGLF(DataSpine):
                             mode.append(row[0])
             list_to_array(fields)
             if nmodes == 0:
-                if verbose:
-                    print('Warning, the number of modes is equal to 0')
-                    verbose = False
+                if verbose and '=' in file:
+                    print('Warning, the number of modes is equal to 0 for ',file.split('_')[1])
                 fields['theta'] = fields['theta'][0]
             else:
                 fields['theta'] = fields['theta'][1]
@@ -1454,6 +1453,7 @@ class TGLF(DataSpine):
         
         self.ids['time'] = [np.nan,np.nan]
         
+        return
         
         
             
@@ -1461,9 +1461,45 @@ class TGLF(DataSpine):
         
         
         
+    def Miller_2_Bunit(self,Nth=128):
+        r0 = self.input['RMIN_LOC'] 
+        R0 = RMAJ_LOC = self.input['RMAJ_LOC'] 
+        Z0 = ZMAJ_LOC = self.input['ZMAJ_LOC']
+        k = self.input['KAPPA_LOC']
+        d =self.input['DELTA_LOC']
+        z =self.input['ZETA_LOC']
+        dRmildr = self.input['DRMAJDX_LOC']
+        dZmildr = self.input['DZMAJDX_LOC']
+        drmildr = self.input['DRMINDX_LOC']
+        sk = self.input['S_KAPPA_LOC']
+        sd = self.input['S_DELTA_LOC']/np.sqrt(1.0-d**2)
+        sz = self.input['S_ZETA_LOC']
         
+        sj = -1*self.input['SIGN_IT']
+        q = self.input['Q_LOC']
         
-        return
+        # define the fine theta grid on which the integrals are performed
+        th=np.linspace(0,2*np.pi,Nth)
+        
+        arg_r = th + np.arcsin(d)*np.sin(th)
+        darg_r = 1.0 + np.arcsin(d)*np.cos(th)
+        arg_z = th + z*np.sin(2.0*th)
+        darg_z = 1.0 + z*2.0*np.cos(2.0*th)
+        
+        R = R0 + r0*np.cos(arg_r)
+        Z = Z0 + r0*k*np.sin(arg_z)
+        
+        dRdr = dRmildr + drmildr*np.cos(arg_r) - np.sin(arg_r)*sd*np.sin(th)
+        dZdr = dZmildr + k*np.sin(arg_z)*(drmildr + sk) + k*np.cos(arg_z)*sz*np.sin(2.0*th)
+        dRdth = -1*r0*np.sin(arg_r)*darg_r
+        dZdth = k*r0*np.cos(arg_z)*darg_z
+        r = 0.5*(max(R)-min(R))
+        
+        J_r = -R*(dRdr*dZdth - dRdth*dZdr) 
+        dpsidr = (sj/(q*2.0*np.pi)*np.trapz(J_r/R,th))
+        B_unit = (q/r)*dpsidr
+        return B_unit
+
 
     def _ids_to_tglf():
         """Convert TGLF data in IMAS gyrokinetic IDS/GKDB format to a TGLF object.
