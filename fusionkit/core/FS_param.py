@@ -13,6 +13,10 @@ from scipy.interpolate import splrep
 from scipy.interpolate import splev
 import matplotlib.pyplot as plt
 import pdb
+import numpy.matlib
+from scipy.optimize import curve_fit
+import scipy.optimize
+
 def fourier2rz(c,s,dcdr,dsdr,code,dr_frac=0.01,R0=1,Z0=0,Nth=500):
   """ return r,R,Z
       Compute the (R,Z) description of a flux surface and two adjacent neighbours from its Fourier parametrisation.
@@ -146,6 +150,8 @@ def mxh2rz(r0,R0,Z0,k,c,s,dR0dr,dZ0dr,dkdr,dcdr,dsdr,code='gkw',dr_frac=0.01,Nth
   if code=='gkw':
    sign_theta=1
   elif code=='imas':
+   sign_theta=-1
+  elif code=='tglf':
    sign_theta=-1
   else:
    print("Unknown code convention. Available: 'gkw' or 'imas'")
@@ -569,3 +575,265 @@ def rz2mxh(R,Z,code,r0=None,Nsh=10,doplots=True):
     plt.plot(np.transpose(R_out),np.transpose(Z_out),'r--')
 
   return r_out, R0, dR0dr, Z0, dZ0dr, k, dkdr, np.squeeze(c), np.squeeze(dcdr), np.squeeze(s),np.squeeze(dsdr), R_out, Z_out, err_out
+
+
+def rz2miller(R,Z,code='tglf',doplots=True):
+  """ return k,d,z,sk,sd,sz,Rmil,Zmil,r,dRmildr,dZmildr
+      Computes the Miller parameters from  R,Z flux surfaces description.
+      The radial coordinate is defined as r=(max(R)-min(R))/2
+      The reference point R0,Z0 is computed as:
+          R0 = (max(R(r0)) + min(R(r0)))/2
+          Z0 = (max(Z(r0)) + min(Z(r0)))/2
+      with interpolation since the R,Z description of the flux surface can be coarse.
+      The flux surfaces are then defined as:
+          R(r,theta) = R0(r) + r cos(theta + arcsin(d) sin(theta))
+          Z(r,theta) = Z0(r) + k r sin(theta + z sin(2*theta))          
+        
+      with the definition of theta generally code dependent: 
+          tan(theta) = sign_theta * (Z-Z0)/(R-R0)
+
+      This parametrisation is similar to that introduced in R.L. Miller, Phys. Plasmas, 5, 973 (1998)
+
+      Inputs:
+        R,Z            Flux surface description in cylindrical coordinates (no double points)
+                       Size of the array assumed to be (nrho,npol)
+        code           Code convention: 'gkw' or 'imas' or 'gyro' or 'tglf' or 'neo'
+        doplots        Perform plots to check the parametrisation if True (default: True)
+
+      Outputs:
+        r              minor radius
+        Rmil, Zmil     flux surface center
+        k,d,z          elongation, triangularity, squareness
+        dRmildr        radial derivative of Rmil
+        dZmildr        radial derivative of Zmil
+        sk,sd,sz       radial derivatives of k, d, z (exact definition code dependent)
+        Rout, Zout:  parametrised flux surfaces in [m]
+        chi2: parametrisation quality (chi2>0.05 starts to be quite bad, switch to full equilibrium advised!)
+         
+      The k, d, z, Rmil, Zmil values will be given with the same normalisation/units as used in input.
+      
+      Triangularity and squareness obtained by minimising the distance between the input flux surfaces and the
+      parametrised solutions.
+      
+      Requires interpos, available from https://crppwww.epfl.ch/~sauter/interpos/
+      
+      YC 22.11.2012, Python 3.9 translation AN 28/09/2022
+  """      
+  if code=='gkw':
+   sign_theta=1
+  elif code=='imas':
+   sign_theta=-1
+  elif code=='tglf':
+   sign_theta=-1
+  else:
+   print("Unknown code convention. Available: 'gkw', 'imas' or 'tglf'")
+   return
+
+
+  (Nr,Nth)=R.shape
+  Nt = max(Nth*5,2000)
+  # approximate minor radius and (R0,Z0) of all FS (no interpolation)
+  r_coarse = (np.max(R,1)-np.min(R,1))/2
+  R0_coarse = np.reshape((np.max(R,1)+np.min(R,1))/2,(Nr,1))
+  Z0_coarse = np.reshape((np.max(Z,1)+np.min(Z,1))/2,(Nr,1))
+
+  # interpolate for a more accurate calculation of r and the local value of (R0, Z0)
+  th_coarse = np.arctan2(sign_theta*(Z-np.tile(Z0_coarse,(1,Nth))),R-np.tile(R0_coarse,(1,Nth))) 
+  th_fine = np.linspace(-np.pi,np.pi,num=Nth,endpoint=False)
+  r,R0_fine,Z0_fine=np.full((3,Nr),np.nan)
+  for ii in range(Nr):
+    th_sorted,Ith=np.unique(th_coarse[ii,:],return_index=True)
+    thth=np.concatenate(([th_sorted[-1]-2*np.pi],th_sorted))
+    RR=np.concatenate(([R[ii,Ith[-1]]],R[ii,Ith]))
+    ZZ=np.concatenate(([Z[ii,Ith[-1]]],Z[ii,Ith]))
+    Rspl=splrep(thth,RR,per=True)
+    Zspl=splrep(thth,ZZ,per=True)
+    R_fine=splev(th_fine,Rspl,ext=0)
+    Z_fine=splev(th_fine,Zspl,ext=0)
+    Rmax=np.max(R_fine)
+    Rmin=np.min(R_fine)
+    Zmax=np.max(Z_fine)
+    Zmin=np.min(Z_fine)
+    r[ii]=(Rmax-Rmin)/2
+    R0_fine[ii]=(Rmax+Rmin)/2
+    Z0_fine[ii]=(Zmax+Zmin)/2
+  
+  f = interp1d(r,R0_fine, kind='quadratic')
+  Rmil=f(r)
+  f = interp1d(r,Z0_fine, kind='quadratic')
+  Zmil=f(r)
+  
+  ## Computes a poloidal angle (th) zero at LFS midplane, positive going upward Defined as
+  #   R-Rmil = a cos(th)
+  #   Z-Zmil = a sin(th)
+    
+  Rr = R - np.matlib.repmat(Rmil.reshape(( Nr, 1)),1,Nth)
+  Zz = Z - np.matlib.repmat(Zmil.reshape(( Nr, 1)),1,Nth)
+  
+  th = np.full(Rr.shape,np.nan)
+  for i in range(Nr):
+    for j in range(Nth):
+      if(Rr[i][j] == 0 and Zz[i][j] > 0):
+        th[i][j] = np.pi/2.
+      elif(Rr[i][j] == 0 and Zz[i][j] < 0):
+        th[i][j] = -1*np.pi/2.
+      else:
+        th[i][j] = np.arctan(Zz[i][j]/Rr[i][j])
+
+  # pi shifts to have th in [0, 2*pi]
+  for i in range(Nr):
+    for j in range(Nth):
+      if(Rr[i][j] < 0):
+        th[i][j] = th[i][j] + np.pi
+      if(Rr[i][j] >= 0 and Zz[i][j] < 0):
+        th[i][j] = th[i][j] + 2*np.pi
+ 
+  # Sort from 0 to 2*pi
+  Isort = np.argsort(th,axis=1)
+  th = np.sort(th,axis=1)
+  R_copy, Z_copy, Rr_copy, Zz_copy = np.copy(R), np.copy(Z), np.copy(Rr), np.copy(Zz)
+  for i in range(Nr):
+     for j in range(Nth):
+         R[i][j] = R_copy[i][Isort[i][j]]
+         Z[i][j] = Z_copy[i][Isort[i][j]]
+         Rr[i][j] = Rr_copy[i][Isort[i][j]]
+         Zz[i][j] = Zz_copy[i][Isort[i][j]]
+ 
+  # detect phase jumps 
+  if np.any(np.abs(np.diff(th, axis=1)) > 3 ) :
+      print('Large jumps in th, something went wrong')
+      print('Check your R,Z inputs, program stopped')
+      return 
+  
+  # local minor radius
+  a = np.sqrt(Rr**2 + Zz**2)
+  
+  ## Now get the shape parameters    
+  # elongation 
+  k = np.zeros(r.shape)
+  for i in range(Nr):   
+   k[i] = (np.max(Z[i]) - np.min(Z[i])) / (2 * r[i])
+  # get delta and zeta from a minimisation
+  ths = np.linspace(0,2*np.pi,Nt,endpoint=False)
+  d,z,chi2 = np.zeros(k.shape), np.zeros(k.shape), np.zeros(k.shape)
+  Rout,Zout = np.zeros((Nr,Nt)), np.zeros((Nr,Nt))
+  x_init=[0.,0.]
+
+  for i in range(Nr):
+    
+    a_spl = splrep(th[i],a[i])
+    a_fine = splev(ths,a_spl)
+    
+    xout = scipy.optimize.fmin(func=chi_rz2miller, x0 = x_init,args=(r[i],k[i],ths,a_fine),xtol=1e-5, ftol=1e-5,disp=False)
+    chi2[i] = chi_rz2miller(xout,r[i],k[i],ths,a_fine)
+    d[i] = np.sin(xout[0])
+    z[i] = xout[1]
+    Rout[i] = r[i]*np.cos(ths + xout[0]*np.sin(ths))
+    Zout[i] = r[i]*k[i]*np.sin(ths + xout[1]*np.sin(2*ths))
+    x_init = xout
+    
+  chi2 = np.sqrt(chi2)*100.
+  if np.any(chi2 > 0.05):
+      print('Warning, for chi2>0.05 parametrisation quality is poor (see plots), better to use the full geometry')
+      print('chi2 = ',chi2)
+      doplots = True
+
+
+  Rmil_spl = splrep(r,Rmil, k=2)
+  Zmil_spl = splrep(r,Zmil, k=2)
+  Rmil_out = splev(r,Rmil_spl)
+  dRmildr = splev(r,Rmil_spl,der=1)
+  Zmil_out = splev(r,Zmil_spl)
+  dZmildr = splev(r,Zmil_spl,der=1)
+
+  k_spl = splrep(r,k, k=2)
+  sk = (r/k)*splev(r,k_spl,der=1)
+
+  z_spl = splrep(r,z, k=2)
+  sz = r*splev(r,z_spl,der=1)
+  
+  d_spl = splrep(r,d, k=2)
+  if code in ['gkw','imas']:
+      sd = (r/np.sqrt(1-d**2))*splev(r,d_spl,der=1)
+  elif code in ['tglf']:
+      sd = r*splev(r,d_spl,der=1)
+
+  #Shift datas so the centre of flux surface are Rmil and Zmil
+  Rout = Rout + np.matlib.repmat(Rmil_out.reshape(( Nr, 1)),1,Nt)
+  Zout = Zout + np.matlib.repmat(Zmil_out.reshape(( Nr, 1)),1,Nt)
+
+
+  ## plots
+  if doplots == True:
+      plt.figure()
+      plt.plot(r/np.amax(r),chi2)
+#      plt.plot(r/np.amax(r),np.matlib.repmat(0.05,1,Nr),'r')
+      plt.xlabel('$r/r_{max}$')
+      plt.ylabel('chi2')
+#      plt.axis(np.array([0,1,0,0.5]))
+      plt.figure()
+      plt.plot(r/np.amax(r),d,label='delta')
+      plt.plot(r/np.amax(r),z,label='zeta')
+      plt.xlabel('$r/r_{max}$')
+      plt.ylabel('$\delta$  and  $\zeta$')
+      plt.legend()
+      plt.figure()
+      plt.plot(r/np.amax(r),sk,label='$s_{\kappa}$')
+      plt.plot(r/np.amax(r),sd,label='$s_{\delta}$')
+      plt.plot(r/np.amax(r),sz,label='$s_{\zeta}$')
+      plt.xlabel('$r/r_{max}$')
+      plt.ylabel('$s_\kappa$ , $s_\delta$ and $s_{\zeta}$')
+      plt.legend()
+      
+      plt.figure()
+      plt.plot(np.transpose(R),np.transpose(Z),label='Input')
+      plt.plot(np.transpose(Rout),np.transpose(Zout),label='Output')
+      plt.xlabel('R')
+      plt.ylabel('Z')
+      plt.legend()
+      plt.axis('equal')
+      
+  return k,d,z,sk,sd,sz,Rmil,Zmil,r,dRmildr,dZmildr
+      
+  ############################################################
+   
+def chi_rz2miller(x0,r0,k0,ths,a_data): 
+    if (np.abs(np.sin(x0[0])) > 1 or  np.abs(x0[1]) > 0.7):
+        chi2 = np.nan
+    else:
+        Nt0 = len(ths)
+        t0 = np.linspace(0,2*np.pi,Nt0,endpoint=False)
+        Rr0 = r0*np.cos(t0 + x0[0]*np.sin(t0))
+        Zz0 = r0*k0*np.sin(t0 + x0[1]*np.sin(2*t0))
+        
+#        th0 = np.arctan2(Zz0,Rr0)
+        th0 = np.full(Rr0.shape,np.nan)
+        for i in range(Nt0):
+            if(Rr0[i] == 0 and Zz0[i] > 0):
+              th0[i] = np.pi/2.
+            elif(Rr0[i] == 0 and Zz0[i] < 0):
+              th0[i] = -1*np.pi/2.
+            else:
+              th0[i] = np.arctan(Zz0[i]/Rr0[i])
+        #pi shifts to have th in [0, 2*pi]
+        for i in range(Nt0):
+            if(Rr0[i] < 0):
+              th0[i] = th0[i] + np.pi
+            if(Rr0[i] >= 0 and Zz0[i] < 0):
+              th0[i] = th0[i] + 2*np.pi
+        # Sort from 0 to 2*pi
+        Isort = np.argsort(th0)
+        th0 = np.sort(th0)
+        Rr0_copy, Zz0_copy = np.copy(Rr0), np.copy(Zz0)
+        for i in range(Nt0):
+               Rr0[i] = Rr0_copy[Isort[i]]
+               Zz0[i] = Zz0_copy[Isort[i]]
+        
+        a0 = np.sqrt(Rr0**2 + Zz0**2)
+        a0_spl = splrep(th0,a0)
+        a0_fine = splev(ths,a0_spl)
+        
+
+        chi2 = np.sum(( (a0_fine - a_data)/a_data )**2) / Nt0**2
+
+    return chi2

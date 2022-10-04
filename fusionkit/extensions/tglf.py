@@ -1244,7 +1244,7 @@ class TGLF(DataSpine):
         """
         return
 
-    def Miller_2_Bunit(self):
+    def _get_metric(self):
         Nth=128 # Defined in the TGLF code "tglf_modules.f90:      INTEGER, PARAMETER :: ms = 128  ! ms needs to be divisible by 8"
         r0 = self.output['input_gen']['RMIN_LOC'] 
         R0 = self.output['input_gen']['RMAJ_LOC'] 
@@ -1284,57 +1284,104 @@ class TGLF(DataSpine):
         grad_r = R/J_r*dldth
         dpsidr = (sj/(q*2.0*np.pi)*np.trapz(J_r/R,th))
         B_unit = (q/r)*dpsidr
-        self.B_unit = B_unit
         
         B_rat = R0/(2*np.pi*r)*np.trapz(1/R*abs(grad_r),th)
-        self.B_rat = B_rat
+
+        return {'B_unit':B_unit, 'B_rat':B_rat, 'R':R,  'Z':Z} 
+
+
+    def _miller_to_mxh(self):
+        #Get the values of r, R and Z
+        r, R, Z = miller2rz(self.output['input_gen']['RMIN_LOC'],self.output['input_gen']['RMAJ_LOC'],
+                            self.output['input_gen']['ZMAJ_LOC'],self.output['input_gen']['KAPPA_LOC'],
+                            self.output['input_gen']['DELTA_LOC'],self.output['input_gen']['ZETA_LOC'],
+                            self.output['input_gen']['DRMAJDX_LOC'],self.output['input_gen']['DZMAJDX_LOC'],
+                            self.output['input_gen']['S_KAPPA_LOC'],self.output['input_gen']['S_DELTA_LOC'],
+                            self.output['input_gen']['S_ZETA_LOC'],code='tglf',dr_frac=0.01,Nth=500)
         
-        self.R = R
-        self.Z = Z
-        return
+        self.R_delete_me = R
+        self.Z_delete_me = Z
+        
+        #Get the mxh coeffs parameters       
+        r_out,R0,dR0dr,Z0,dZ0dr,k,dkdr,c,dcdr,s,dsdr,R_out,Z_out,err_out = rz2mxh(R,Z,'tglf',
+                                                                                  self.output['input_gen']['RMIN_LOC'],
+                                                                                  Nsh=10,doplots=False)
+
+        #Check if there is an issue with the function
+        if ((abs(r_out-self.output['input_gen']['RMIN_LOC']) > 1e-5)
+            or (abs(R0-self.output['input_gen']['RMAJ_LOC']) > 1e-5)
+            or (abs(Z0-self.output['input_gen']['ZMAJ_LOC']) > 1e-5)
+            or (abs(dR0dr-self.output['input_gen']['DRMAJDX_LOC']) > 1e-5)):
+            print('There is an issue with _miller_to_mxh(), different values are obtained for r0, R0 and Z0 from the input')
+            print('Obtained values: r0 = ',r_out,', R0 = ',R0,', Z0 = ',Z0,', dR0dr = ',dR0dr)
+
+        return { 'r':r_out, 'R0':R0  ,  'dR0dr':dR0dr  ,  'Z0':Z0  ,
+                'dZ0dr':dZ0dr  ,  'k':k  ,  'dkdr':dkdr  ,  'c':c  ,
+                'dcdr':dcdr  ,  's':s  ,  'dsdr':dsdr  ,  'R_out':R_out ,
+                'Z_out':Z_out }
 
 
-    def _tglf_to_mhx(self):
-        r, R, Z = miller2rz(self.output['input_gen']['RMIN_LOC'],self.output['input_gen']['RMAJ_LOC'],self.output['input_gen']['ZMAJ_LOC'],self.output['input_gen']['KAPPA_LOC'],self.output['input_gen']['DELTA_LOC'],self.output['input_gen']['ZETA_LOC'],self.output['input_gen']['DRMAJDX_LOC'],self.output['input_gen']['DZMAJDX_LOC'],self.output['input_gen']['S_KAPPA_LOC'],self.output['input_gen']['S_DELTA_LOC'],self.output['input_gen']['S_ZETA_LOC'],code='tglf',dr_frac=0.01,Nth=500)
-        r_out, R0, dR0dr, Z0, dZ0dr, k, dkdr, c, dcdr, s,dsdr, R_out, Z_out, err_out = rz2mxh(R,Z,'tglf',self.output['input_gen']['RMIN_LOC'],Nsh=10,doplots=False)
-        mhx = { 'r':r_out, 'R0':R0  ,  'dR0dr':dR0dr  ,  'Z0':Z0  ,  'dZ0dr':dZ0dr  ,  'k':k  ,  'dkdr':dkdr  ,  'c':c  ,  'dcdr':dcdr  ,  's':s  ,  'dsdr':dsdr  ,  'R_out':R_out , 'Z_out':Z_out }
-        self.mhx = {}
-        merge_trees(mhx,self.mhx)
-        if ((abs(r_out-self.output['input_gen']['RMIN_LOC']) > 1e-5) or (abs(R0-self.output['input_gen']['RMAJ_LOC']) > 1e-5) or (abs(Z0-self.output['input_gen']['ZMAJ_LOC']) > 1e-5) or (abs(dR0dr-self.output['input_gen']['DRMAJDX_LOC']) > 1e-5)):
-            print('There is an issue with _tglf_to_mhx(), wrong values are obtained for r0, R0 and Z0')
-        return
+    def _mxh_to_miller(self):
+         #TO DO: see how to import the ids object
+         ids = self.ids
+         #Get the values of r, R and Z (R0 is supposed to be equal to 1 and Z0 to 0, IMAS normalisations)
+         r, R, Z = mxh2rz(ids['flux_surface']['r_minor_norm'], 1 , 0 ,
+                          ids['flux_surface']['elongation'],
+                          ids['flux_surface']['shape_coefficients_c'],
+                          ids['flux_surface']['shape_coefficients_s'],
+                          ids['flux_surface']['dgeometric_axis_r_dr_minor'],
+                          ids['flux_surface']['dgeometric_axis_z_dr_minor'],
+                          ids['flux_surface']['delongation_dr_minor_norm'],
+                          ids['flux_surface']['dc_dr_minor_norm'],
+                          ids['flux_surface']['ds_dr_minor_norm'],
+                          code='tglf',dr_frac=0.01,Nth=500)
+         self.R_delete_me2 = R
+         self.Z_delete_me2 = Z
+         #Get the miller coeffs parameters       
+         k,d,z,sk,sd,sz,Rmil,Zmil,r,dRmildr,dZmildr = rz2miller(R,Z,code='tglf',doplots=True)
+         return { 'k':k,'d':d, 'z':z, 'sk':sk, 'sd':sd, 'sz':sz, 'Rmil':Rmil, 
+                 'Zmil':Zmil, 'r':r, 'dRmildr':dRmildr, 'dZmildr':dZmildr }
+
 
 
     def _tglf_to_ids(self):
         """Convert a TGLF object to IMAS gyrokinetic IDS/GKDB format.
         """
-        # Check if the code has been launched, else, need to run the code first
-        assert 'run_date' in self.metadata, ('You need to launch the code first. \n Try self.run()')
+        # Check if the code has been launched, else, need to run the code first        
+        try:
+            self.output['input_gen']
+        except:
+            try:
+                self.collect_output(eigenfunctions=True)
+            except:
+                print('There are no values in the TGLF object to convert to an ids \
+                      \n(input.tglf.gen file is missing and self.collect_output failed)')
+                print('You need to launch the code first. \
+                      \nTry self.run() or read the help in fusionkit/extensions/Fusionkit.tglf_example')
+                return
+                
         
-        # Obtain the input values from TGLF input file
-        self.read_input_gen()
-
         # Obtain the Miller eXtended Harmonics (MXH) parametrisation coefficients from the TGLF input values
-        self._tglf_to_mhx()
+        mhx = self._miller_to_mxh()
         
         # Obtain the values of B_unit, B_rat, R and Z
-        self.Miller_2_Bunit()
+        metric = self._get_metric()
         
         # compute TGLF_ref/IMAS_ref ratio of reference quantities for TGLf to IMAS conversion
         # reference charge ratio
-        q_tglf = 1.6021746e-19      #at: July 29, 2022
-        q_imas = 1.602176634e-19    #Last uptade: July 29, 2022
+        q_tglf = 1.6021746e-19      #at: July 29, 2022 See: https://gafusion.github.io/doc/tglf.html
+        q_imas = 1.602176634e-19    #Last uptade: July 29, 2022 ; IMAS: 3.22.0
         q_rat = q_tglf/q_imas
         # reference mass ratio
-        m_tglf = 3.345e-27          #at: Last July 29, 2022
-        m_imas = 3.3435837724e-27   #Last uptade: July 29, 2022
+        m_tglf = 3.345e-27          #at: Last July 29, 2022 See: https://gafusion.github.io/doc/tglf.html
+        m_imas = 3.3435837724e-27   #Last uptade: July 29, 2022 ; IMAS: 3.22.0
         m_rat = m_tglf/m_imas
         # reference temperature ratio
         T_rat = 1
         # reference length ratio
         L_rat = 1/self.output['input_gen']['RMAJ_LOC']
         # reference magnetic field ratio
-        B_rat = self.B_rat
+        B_rat = metric['B_rat']
         # reference density ratio
         n_rat = 1
         # reference thermal velocity ratio
@@ -1373,49 +1420,37 @@ class TGLF(DataSpine):
 
         self.ids['flux_surface'] = {}
         self.ids['flux_surface']['r_minor_norm'] = self.output['input_gen']['RMIN_LOC'] * L_rat
-        self.ids['flux_surface']['elongation'] = self.mhx['k']
-        self.ids['flux_surface']['delongation_dr_minor_norm'] = self.mhx['dkdr']
-        self.ids['flux_surface']['dgeometric_axis_r_dr_minor'] = self.mhx['dR0dr']
-        self.ids['flux_surface']['dgeometric_axis_z_dr_minor'] = self.mhx['dZ0dr']
+        self.ids['flux_surface']['elongation'] = mhx['k']
+        self.ids['flux_surface']['delongation_dr_minor_norm'] = mhx['dkdr']
+        self.ids['flux_surface']['dgeometric_axis_r_dr_minor'] = mhx['dR0dr']
+        self.ids['flux_surface']['dgeometric_axis_z_dr_minor'] = mhx['dZ0dr']
         self.ids['flux_surface']['q'] = self.output['input_gen']['SIGN_BT']*self.output['input_gen']['SIGN_IT']*self.output['input_gen']['Q_LOC']
         self.ids['flux_surface']['magnetic_shear_r_minor'] = (self.output['input_gen']['RMIN_LOC']/self.output['input_gen']['Q_LOC'])**2 * self.output['input_gen']['Q_PRIME_LOC']
         self.ids['flux_surface']['pressure_gradient_norm'] = (-8*np.pi)*(B_rat**2/L_rat)*(self.output['input_gen']['RMIN_LOC']/(self.output['input_gen']['SIGN_BT']*self.output['input_gen']['SIGN_IT']*self.output['input_gen']['Q_LOC'])) * self.output['input_gen']['P_PRIME_LOC']        
         self.ids['flux_surface']['ip_sign'] = self.output['input_gen']['SIGN_IT']
         self.ids['flux_surface']['b_field_tor_sign'] = self.output['input_gen']['SIGN_BT']
-        self.ids['flux_surface']['shape_coefficients_c'] = self.mhx['c']
-        self.ids['flux_surface']['dc_dr_minor_norm'] = self.mhx['dcdr']
-        self.ids['flux_surface']['shape_coefficients_s'] = self.mhx['s']
-        self.ids['flux_surface']['ds_dr_minor_norm'] = self.mhx['dsdr']
+        self.ids['flux_surface']['shape_coefficients_c'] = mhx['c']
+        self.ids['flux_surface']['dc_dr_minor_norm'] = mhx['dcdr']
+        self.ids['flux_surface']['shape_coefficients_s'] = mhx['s']
+        self.ids['flux_surface']['ds_dr_minor_norm'] = mhx['dsdr']
         
         self.ids['model'] = {}
         self.ids['model']['include_centrifugal_effects'] = 0
-        
-        if (self.output['input_gen']['USE_BPER'] == '.false.'):
-            self.ids['model']['include_a_field_parallel'] = 0
-        elif (self.output['input_gen']['USE_BPER'] == '.true.'):
-            self.ids['model']['include_a_field_parallel'] = 1
-        else :
-            self.ids['model']['include_a_field_parallel'] = []
-        
-        if (self.output['input_gen']['USE_BPAR'] == '.false.'):
-            self.ids['model']['include_b_field_parallel'] = 0
-        elif (self.output['input_gen']['USE_BPAR'] == '.true.'):
-            self.ids['model']['include_b_field_parallel'] = 1
-        else:
-            self.ids['model']['include_b_field_parallel'] = []
+    
+        self.ids['model']['include_a_field_parallel'] = self.output['input_gen']['USE_BPER']
+        self.ids['model']['include_b_field_parallel'] = self.output['input_gen']['USE_BPAR']
         
         if (self.output['input_gen']['USE_MHD_RULE'] == '.false.'):
-            self.ids['model']['include_full_curvature_drift'] = 1
-        elif (self.output['input_gen']['USE_MHD_RULE'] == '.true.'):
-            self.ids['model']['include_full_curvature_drift'] = 0
+            self.ids['model']['include_full_curvature_drift'] = '.true.'
         else:
-            self.ids['model']['include_full_curvature_drift'] = []
+            self.ids['model']['include_full_curvature_drift'] = '.false.'
+
             
-# TO DO                self.ids['model']['collisions_pitch_only'] = []
-# TO DO                self.ids['model']['collisions_momentum_conservation'] = []
-# TO DO                self.ids['model']['collisions_energy_conservation'] = []
-# TO DO                self.ids['model']['collisions_finite_larmor_radius'] = []
-        self.ids['model']['non_linear_run'] = 1
+        self.ids['model']['collisions_pitch_only'] = '.true.'
+        self.ids['model']['collisions_momentum_conservation'] = '.false.'
+        self.ids['model']['collisions_energy_conservation'] = '.false.'
+        self.ids['model']['collisions_finite_larmor_radius'] = '.false.'
+        self.ids['model']['non_linear_run'] = []
 # TO DO                self.ids['model']['time_interval_norm'] = []
         
         self.ids['species_all'] = {}
@@ -1439,7 +1474,7 @@ class TGLF(DataSpine):
 # TO DO            dum['velocity_tor_gradient_norm'] = np.nan
             self.ids['species'].append(dum)
             
-
+#TO DO: quelle espece est un electron et remplir le tableau correctement
         self.ids['collisions'] = {}
         self.ids['collisions']['collisionality_norm'] = [ [ 0.,self.output['input_gen']['XNUE']*(v_thrat/L_rat) ] , [ self.output['input_gen']['XNUE']*(v_thrat/L_rat),0. ] ]
         
@@ -1593,16 +1628,118 @@ class TGLF(DataSpine):
         return
         
         
-            
+
+    def _ids_input_to_tglf_input(ids,RMAJ_LOC=None):
+        """Convert an IMAS input object to a TGLF input file.
+        """
+        if not RMAJ_LOC:
+            try:
+                self.output['input_gen']
+                if 'RMAJ_LOC' in self.output['input_gen']:
+                    RMAJ_LOC = self.output['input_gen']['RMAJ_LOC']
+            except:
+                RMAJ_LOC = 1.0
+        else:
+            try:
+                RMAJ_LOC=float(RMAJ_LOC)
+            except:
+                print('Wrong value for RMAJ_LOC, should be a number')
+                return
         
+        print('For the conversion from an IMAS input object to a TGLF input file,\
+                  \n We set: RMAJ_LOC = ',RMAJ_LOC)
+              
         
+        # Obtain the Miller parametrisation coefficients from the ids input values
+        miller = _mxh_to_miller(ids)
         
+        # Obtain the values of B_unit, B_rat, R and Z
+        metric = self._get_metric()
         
+        # compute TGLF_ref/IMAS_ref ratio of reference quantities for TGLf to IMAS conversion
+        # reference charge ratio
+        q_tglf = 1.6021746e-19      #at: July 29, 2022
+        q_imas = 1.602176634e-19    #Last uptade: July 29, 2022
+        q_rat = q_tglf/q_imas
+        # reference mass ratio
+        m_tglf = 3.345e-27          #at: Last July 29, 2022
+        m_imas = 3.3435837724e-27   #Last uptade: July 29, 2022
+        m_rat = m_tglf/m_imas
+        # reference temperature ratio
+        T_rat = 1
+        # reference length ratio
+        L_rat = 1/RMAJ_LOC
+        # reference magnetic field ratio
+        B_rat = metric['B_rat']
+        # reference density ratio
+        n_rat = 1
+        # reference thermal velocity ratio
+        v_thrat = (1/np.sqrt(2))*(np.sqrt( T_rat/m_rat ))
+        # reference Larmor radius ratio
+        rho_rat = (m_rat*v_thrat)/(q_rat*B_rat)
 
 
-    def _ids_to_tglf():
+        
+        
+        
+        
+        
+        
+        inputs = {}
+        # self.input = {}
+        # inputs = {'RMIN_LOC' :self.ids['flux_surface']['r_minor_norm'] / L_rat ,
+        #           '' :  ,
+        #           '' :  ,
+        #           '' :  ,
+        #           '' :  ,
+        #           '' :  ,
+        #           '' :  ,
+        #           '' :  ,
+        #           '' :  ,
+        #           '' :  ,
+        #           '' :  ,
+                            
+        #           }
+
+        return inputs
+    def _ids_to_tglf(self):
         """Convert TGLF data in IMAS gyrokinetic IDS/GKDB format to a TGLF object.
         """
+        self.metadata = {}
+        metadata = { 'author':self.ids['ids_properties']['provider'] ,
+                    'date_created':self.ids['ids_properties']['creation_date'] ,
+                    'nky':len(self.ids['wavevector']) , 
+                    'nmodes':len(self.ids['wavevector'][0]['eigenmode']) , 
+                    'nspecies':len(self.ids['wavevector'][0]['eigenmode'][0]['fluxes_moments']) , 
+                    'run_date':self.ids['ids_properties']['creation_date'] , 
+                    'run_time':self.ids['ids_properties']['creation_date'] ,
+                    }
+        
+        merge_trees(metadata,self.metadata)
+        
+        self.output = {}
+        
+        self.output['eigenvalues'] = {}
+        self.output['eigenvalues']['gamma'] = {}
+        self.output['eigenvalues']['omega'] = {}
+        for i in range(self.metadata['nmodes']):
+            dum1 = []
+            dum2 = []
+            for j in range(self.metadata['nky']):
+                dum1.append(self.ids['wavevector'][j]['eigenmode'][i]['growth_rate_norm'])
+                dum2.append(self.ids['wavevector'][j]['eigenmode'][i]['frequency_norm'])
+            self.output['eigenvalues']['gamma'][i+1] = np.array(dum1)
+            self.output['eigenvalues']['omega'][i+1] = np.array(dum2)
+# TO DO: add the sign_convention        
+       
+# TO DO: input_gen
+        self.output['ky'] = {}
+        for i in range(self.metadata['nky']):
+            self.output['ky'][i] =  self.ids['wavevector'][i]['binormal_component_norm']
+# TO DO: sat_scalar_params
+      
+        
+        
         return
 
     # run functions
