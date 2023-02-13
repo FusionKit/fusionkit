@@ -5,7 +5,7 @@ For more information on the TGLF code see https://gafusion.github.io/doc/tglf.ht
 NOTE: TGLF does not allow (unescaped) spaces in the run path!
 NOTE: run_path needs to end with a /
 '''
-
+import sys
 import os
 import copy
 
@@ -14,7 +14,14 @@ import matplotlib.pyplot as plt
 
 from ..core.dataspine import DataSpine
 from ..core.utils import *
-from ..core.FS_param import *
+from ..core.get_metric import *
+
+# Import the file FS_param.py from the repository gkw-pythontools 
+# that can be found at bitbucket.org/gkw/gkw-pythontools.git
+# it can be obtained with the command "git clone git@bitbucket.org:gkw/gkw-pythontools.git"
+if not '/home/anass/codes/gkw-pythontools/' in sys.path :
+    sys.path.append('/home/anass/codes/gkw-pythontools/')
+from FS_param import *
 
 CURSOR_UP_ONE = '\x1b[1A'
 if os.uname().sysname.lower() in ['darwin','linux','linux2']:
@@ -483,13 +490,16 @@ class TGLF(DataSpine):
         Returns:
             dict: all the TGLF input variables used in the run output in input.tglf.gen.
         """
+        Fortran_false_list = ['F','f','False','false','.False.','.false.']
+        Fortran_true_list = ['T','t','True','true','.True.','.true.']        
+        
         # if unspecified, for convenience check for run path in metadata
         if not run_path and 'run_path' in self.metadata:
             run_path = self.metadata['run_path']
     
         # read the output.tglf.input_gen file
         lines = read_file(path=run_path,file='input.tglf.gen')
-
+        
         # if the file was successfully read
         if lines:
             # set file dependent variables
@@ -510,10 +520,10 @@ class TGLF(DataSpine):
                         value = float(value)
                     except:
                         value = str(value)
-                if (value == 'F' or value == 'f' or value == '.False.'):
-                    value = '.false.'
-                if (value == 'T' or value == 't' or value == '.True.'):
-                    value = '.true.'
+                        if (value in Fortran_false_list):
+                            value = False
+                        if (value in Fortran_true_list):
+                            value = True
                 input_gen.update({key:value})
         
             # if standalone reader use
@@ -1235,33 +1245,27 @@ class TGLF(DataSpine):
 
         return
 
-    # adapter functions, code_x_to_tglf() or tglf_to_code_x()
-    def _gene_to_tglf(self,input_path=None):
-        """Adapat a GENE input file to a TGLF input file.
 
-        Args:
-            input_path (_type_, optional): _description_. Defaults to None.
-        """
-        return
 
-    def _get_metric(self):
-        Nth=128 # Defined in the TGLF code "tglf_modules.f90:      INTEGER, PARAMETER :: ms = 128  ! ms needs to be divisible by 8"
+    def _get_B_rat(self):
+        '''
+        Return B_rat, the ratio between the reference magnetic fieldof TGLF and IMAS
+        '''
+        # Nuber of points in the theta grid
+        Nth=289
+        # Flux surface geometry
         r0 = self.output['input_gen']['RMIN_LOC'] 
         R0 = self.output['input_gen']['RMAJ_LOC'] 
         Z0 = self.output['input_gen']['ZMAJ_LOC']
         k = self.output['input_gen']['KAPPA_LOC']
-        d =self.output['input_gen']['DELTA_LOC']
-        z =self.output['input_gen']['ZETA_LOC']
+        d = self.output['input_gen']['DELTA_LOC']
+        z = self.output['input_gen']['ZETA_LOC']
         dRmildr = self.output['input_gen']['DRMAJDX_LOC']
         dZmildr = self.output['input_gen']['DZMAJDX_LOC']
         drmildr = self.output['input_gen']['DRMINDX_LOC']
         sk = self.output['input_gen']['S_KAPPA_LOC']
         sd = self.output['input_gen']['S_DELTA_LOC']/np.sqrt(1.0-d**2)
         sz = self.output['input_gen']['S_ZETA_LOC']
-        
-        sj = -1*self.output['input_gen']['SIGN_IT']
-        q = self.output['input_gen']['Q_LOC']
-        
         # define the fine theta grid on which the integrals are performed
         th=np.linspace(0,2*np.pi,Nth)
         
@@ -1282,28 +1286,29 @@ class TGLF(DataSpine):
         J_r = -R*(dRdr*dZdth - dRdth*dZdr)
         dldth = np.sqrt((dRdth)**2+(dZdth)**2)
         grad_r = R/J_r*dldth
-        dpsidr = (sj/(q*2.0*np.pi)*np.trapz(J_r/R,th))
-        B_unit = (q/r)*dpsidr
-        
-        B_rat = R0/(2*np.pi*r)*np.trapz(1/R*abs(grad_r),th)
 
-        return {'B_unit':B_unit, 'B_rat':B_rat, 'R':R,  'Z':Z} 
+        B_rat = R0/(2*np.pi*r)*np.trapz(dldth/(R*abs(grad_r)),th)
+
+        return B_rat
 
 
+            
+            
     def _miller_to_mxh(self):
+        '''
+        Return a dict with Miller eXtended Harmonics (MXH) parametrisation parameters
+        From the TGLF Miller input parameters 
+        '''
         #Get the values of r, R and Z
         r, R, Z = miller2rz(self.output['input_gen']['RMIN_LOC'],self.output['input_gen']['RMAJ_LOC'],
                             self.output['input_gen']['ZMAJ_LOC'],self.output['input_gen']['KAPPA_LOC'],
                             self.output['input_gen']['DELTA_LOC'],self.output['input_gen']['ZETA_LOC'],
-                            self.output['input_gen']['DRMAJDX_LOC'],self.output['input_gen']['DZMAJDX_LOC'],
+                            self.output['input_gen']['DRMAJDX_LOC']/self.output['input_gen']['DRMINDX_LOC'],
+                            self.output['input_gen']['DZMAJDX_LOC']/self.output['input_gen']['DRMINDX_LOC'],
                             self.output['input_gen']['S_KAPPA_LOC'],self.output['input_gen']['S_DELTA_LOC'],
-                            self.output['input_gen']['S_ZETA_LOC'],code='tglf',dr_frac=0.01,Nth=500)
-        
-        self.R_delete_me = R
-        self.Z_delete_me = Z
-        
+                            self.output['input_gen']['S_ZETA_LOC'],code='tglf',dr_frac=0.01,Nth=500)       
         #Get the mxh coeffs parameters       
-        r_out,R0,dR0dr,Z0,dZ0dr,k,dkdr,c,dcdr,s,dsdr,R_out,Z_out,err_out = rz2mxh(R,Z,'tglf',
+        r_out,R0,dR0dr,Z0,dZ0dr,k,dkdr,c,dcdr,s,dsdr,R_out,Z_out,err_out = rz2mxh(R,Z,'imas',
                                                                                   self.output['input_gen']['RMIN_LOC'],
                                                                                   Nsh=10,doplots=False)
 
@@ -1320,31 +1325,7 @@ class TGLF(DataSpine):
                 'dcdr':dcdr  ,  's':s  ,  'dsdr':dsdr  ,  'R_out':R_out ,
                 'Z_out':Z_out }
 
-
-    def _mxh_to_miller(self):
-         #TO DO: see how to import the ids object
-         ids = self.ids
-         #Get the values of r, R and Z (R0 is supposed to be equal to 1 and Z0 to 0, IMAS normalisations)
-         r, R, Z = mxh2rz(ids['flux_surface']['r_minor_norm'], 1 , 0 ,
-                          ids['flux_surface']['elongation'],
-                          ids['flux_surface']['shape_coefficients_c'],
-                          ids['flux_surface']['shape_coefficients_s'],
-                          ids['flux_surface']['dgeometric_axis_r_dr_minor'],
-                          ids['flux_surface']['dgeometric_axis_z_dr_minor'],
-                          ids['flux_surface']['delongation_dr_minor_norm'],
-                          ids['flux_surface']['dc_dr_minor_norm'],
-                          ids['flux_surface']['ds_dr_minor_norm'],
-                          code='tglf',dr_frac=0.01,Nth=500)
-         self.R_delete_me2 = R
-         self.Z_delete_me2 = Z
-         #Get the miller coeffs parameters       
-         k,d,z,sk,sd,sz,Rmil,Zmil,r,dRmildr,dZmildr = rz2miller(R,Z,code='tglf',doplots=True)
-         return { 'k':k,'d':d, 'z':z, 'sk':sk, 'sd':sd, 'sz':sz, 'Rmil':Rmil, 
-                 'Zmil':Zmil, 'r':r, 'dRmildr':dRmildr, 'dZmildr':dZmildr }
-
-
-
-    def _tglf_to_ids(self):
+    def _tglf_to_ids(self,verbose=True):
         """Convert a TGLF object to IMAS gyrokinetic IDS/GKDB format.
         """
         # Check if the code has been launched, else, need to run the code first        
@@ -1354,18 +1335,15 @@ class TGLF(DataSpine):
             try:
                 self.collect_output(eigenfunctions=True)
             except:
-                print('There are no values in the TGLF object to convert to an ids \
-                      \n(input.tglf.gen file is missing and self.collect_output failed)')
-                print('You need to launch the code first. \
-                      \nTry self.run() or read the help in fusionkit/extensions/Fusionkit.tglf_example')
+                if verbose:
+                    print('There are no values in the TGLF object to convert to an ids \
+                          \n(input.tglf.gen file is missing and self.collect_output failed)')
+                    print('You need to launch the code first. \
+                          \nTry self.run() or read the help in fusionkit/extensions/Fusionkit.tglf_example')
                 return
-                
         
         # Obtain the Miller eXtended Harmonics (MXH) parametrisation coefficients from the TGLF input values
         mhx = self._miller_to_mxh()
-        
-        # Obtain the values of B_unit, B_rat, R and Z
-        metric = self._get_metric()
         
         # compute TGLF_ref/IMAS_ref ratio of reference quantities for TGLf to IMAS conversion
         # reference charge ratio
@@ -1379,9 +1357,9 @@ class TGLF(DataSpine):
         # reference temperature ratio
         T_rat = 1
         # reference length ratio
-        L_rat = 1/self.output['input_gen']['RMAJ_LOC']
+        L_rat =  1/self.output['input_gen']['RMAJ_LOC'] 
         # reference magnetic field ratio
-        B_rat = metric['B_rat']
+        B_rat = self._get_B_rat()
         # reference density ratio
         n_rat = 1
         # reference thermal velocity ratio
@@ -1424,45 +1402,60 @@ class TGLF(DataSpine):
         self.ids['flux_surface']['delongation_dr_minor_norm'] = mhx['dkdr']
         self.ids['flux_surface']['dgeometric_axis_r_dr_minor'] = mhx['dR0dr']
         self.ids['flux_surface']['dgeometric_axis_z_dr_minor'] = mhx['dZ0dr']
-        self.ids['flux_surface']['q'] = self.output['input_gen']['SIGN_BT']*self.output['input_gen']['SIGN_IT']*self.output['input_gen']['Q_LOC']
-        self.ids['flux_surface']['magnetic_shear_r_minor'] = (self.output['input_gen']['RMIN_LOC']/self.output['input_gen']['Q_LOC'])**2 * self.output['input_gen']['Q_PRIME_LOC']
-        self.ids['flux_surface']['pressure_gradient_norm'] = (-8*np.pi)*(B_rat**2/L_rat)*(self.output['input_gen']['RMIN_LOC']/(self.output['input_gen']['SIGN_BT']*self.output['input_gen']['SIGN_IT']*self.output['input_gen']['Q_LOC'])) * self.output['input_gen']['P_PRIME_LOC']        
+        self.ids['flux_surface']['q'] = self.output['input_gen']['SIGN_BT']*\
+            self.output['input_gen']['SIGN_IT']*self.output['input_gen']['Q_LOC']
+        self.ids['flux_surface']['magnetic_shear_r_minor'] = (self.output['input_gen']['RMIN_LOC']/\
+            self.output['input_gen']['Q_LOC'])**2 * self.output['input_gen']['Q_PRIME_LOC']
+        self.ids['flux_surface']['pressure_gradient_norm'] = (-8*np.pi)*(B_rat**2/L_rat)*\
+            (self.output['input_gen']['RMIN_LOC']/(self.output['input_gen']['SIGN_BT']*\
+            self.output['input_gen']['SIGN_IT']*self.output['input_gen']['Q_LOC'])) *\
+            self.output['input_gen']['P_PRIME_LOC']        
         self.ids['flux_surface']['ip_sign'] = self.output['input_gen']['SIGN_IT']
         self.ids['flux_surface']['b_field_tor_sign'] = self.output['input_gen']['SIGN_BT']
         self.ids['flux_surface']['shape_coefficients_c'] = mhx['c']
         self.ids['flux_surface']['dc_dr_minor_norm'] = mhx['dcdr']
         self.ids['flux_surface']['shape_coefficients_s'] = mhx['s']
         self.ids['flux_surface']['ds_dr_minor_norm'] = mhx['dsdr']
-        
+                
         self.ids['model'] = {}
-        self.ids['model']['include_centrifugal_effects'] = 0
-    
-        self.ids['model']['include_a_field_parallel'] = self.output['input_gen']['USE_BPER']
-        self.ids['model']['include_b_field_parallel'] = self.output['input_gen']['USE_BPAR']
-        
-        if (self.output['input_gen']['USE_MHD_RULE'] == '.false.'):
-            self.ids['model']['include_full_curvature_drift'] = '.true.'
-        else:
-            self.ids['model']['include_full_curvature_drift'] = '.false.'
-
-            
-        self.ids['model']['collisions_pitch_only'] = '.true.'
-        self.ids['model']['collisions_momentum_conservation'] = '.false.'
-        self.ids['model']['collisions_energy_conservation'] = '.false.'
-        self.ids['model']['collisions_finite_larmor_radius'] = '.false.'
+        self.ids['model']['include_centrifugal_effects'] = int(False)
+        self.ids['model']['include_a_field_parallel'] = int(self.output['input_gen']['USE_BPER'])
+        self.ids['model']['include_b_field_parallel'] = int(self.output['input_gen']['USE_BPAR'])
+        self.ids['model']['include_full_curvature_drift'] = int(not self.output['input_gen']['USE_MHD_RULE'])
+        self.ids['model']['collisions_pitch_only'] = int(True)
+        self.ids['model']['collisions_momentum_conservation'] = int(False)
+        self.ids['model']['collisions_energy_conservation'] = int(False)
+        self.ids['model']['collisions_finite_larmor_radius'] = int(False)
         self.ids['model']['non_linear_run'] = []
-# TO DO                self.ids['model']['time_interval_norm'] = []
+        self.ids['model']['time_interval_norm'] = []
         
         self.ids['species_all'] = {}
-        self.ids['species_all']['beta_reference'] = ((B_rat**2)/(n_rat*T_rat)) * self.output['input_gen']['BETAE']
-# TO DO        self.ids['species_all']['velocity_tor_norm'] = np.nan                              
+        self.ids['species_all']['beta_reference'] = ((0.5*B_rat**2)/(n_rat*T_rat)) * self.output['input_gen']['BETAE']
+        
+        number_of_species = self.output['input_gen']['NS']
+        
+# =============================================================================
+#         at 07/02/2023:
+#         Toroidal velocity implementation
+#         It still require some work for the normalisations
+#         Will be probably added in a next commit
+#
+#
+#         Vpar = []
+#         for i in range(number_of_species):
+#             Vpar.append(self.output['input_gen']['VPAR_'+str(i+1)])
+#         if all(x==Vpar[0] for x in Vpar):
+#             self.ids['species_all']['velocity_tor_norm'] = self.output['input_gen']['VPAR_1']*(v_thrat/L_rat)
+#         else:
+#             print('Warning: Wrong values for velocity_tor_norm. (All species are assumed to have\
+#                   \n a purely toroidal flow with a COMMON toroidal angular frequency)')
+#             self.ids['species_all']['velocity_tor_norm'] = []
+#         
+# =============================================================================
         self.ids['species_all']['zeff'] = self.output['input_gen']['ZEFF']
-# TO DO        self.ids['species_all']['debye_length_reference'] = np.nan
-# TO DO        self.ids['species_all']['shearing_rate_norm'] = np.nan
 
 
         self.ids['species'] = []
-        number_of_species = self.metadata['nspecies']
         for i in range(number_of_species):
             dum = {}
             dum['charge_norm'] = self.output['input_gen']['ZS_'+str(i+1)]*q_rat
@@ -1471,27 +1464,90 @@ class TGLF(DataSpine):
             dum['density_log_gradient_norm'] = self.output['input_gen']['RLNS_'+str(i+1)]/L_rat
             dum['temperature_norm'] = self.output['input_gen']['TAUS_'+str(i+1)]*T_rat
             dum['temperature_log_gradient_norm'] = self.output['input_gen']['RLTS_'+str(i+1)]/L_rat
-# TO DO            dum['velocity_tor_gradient_norm'] = np.nan
             self.ids['species'].append(dum)
             
-#TO DO: quelle espece est un electron et remplir le tableau correctement
         self.ids['collisions'] = {}
-        self.ids['collisions']['collisionality_norm'] = [ [ 0.,self.output['input_gen']['XNUE']*(v_thrat/L_rat) ] , [ self.output['input_gen']['XNUE']*(v_thrat/L_rat),0. ] ]
+        # Find electron/main ion index
+        mass_max = 0.
+        for i in range(len(self.ids['species'])):
+            charge = self.ids['species'][i]['charge_norm']
+            mass = self.ids['species'][i]['mass_norm']
+            if charge < 0.:
+                index_electron = i
+            if mass > mass_max:
+                mass_max = mass
+                index_main_ion = i
+        self.ids['collisions']['collisionality_norm'] = np.full((len(self.ids['species']),len(self.ids['species'])),0.)
+        self.ids['collisions']['collisionality_norm'][index_electron][index_main_ion] = self.output['input_gen']['XNUE']*(v_thrat/L_rat)
         
     
         self.ids['wavevector'] = []
-        number_of_ky = self.metadata['nky']
-        number_of_modes = self.metadata['nmodes']
+        number_of_ky = len(self.output['ky'])
+        number_of_modes = self.output['input_gen']['NMODES']
+        Gq = get_metric(self.ids,np.linspace(0,2*np.pi,501))['Gq'][0]
+        
+        # compute theta_imas=f(theta_tglf)
+        try:
+            th_tglf = self.output['eigenfunctions'][list(self.output['eigenfunctions'].keys())[-1]]['theta']
+            nb_pol_trurns = (max(th_tglf)-min(th_tglf))/(2*np.pi)
+            R_dum = self.output['input_gen']['RMAJ_LOC'] + self.output['input_gen']['RMIN_LOC']* \
+                np.cos(th_tglf + np.arcsin(self.output['input_gen']['DELTA_LOC'])*np.sin(th_tglf))
+            Z_dum = self.output['input_gen']['KAPPA_LOC']*self.output['input_gen']['RMIN_LOC']* \
+                np.sin(th_tglf + self.output['input_gen']['ZETA_LOC']*np.sin(2*th_tglf))
+            th = np.arctan2((Z_dum),R_dum-self.output['input_gen']['RMAJ_LOC'])
+            dum = np.cumsum(np.concatenate(([False],abs(np.diff(th))>np.pi)))
+            dum = dum - ((nb_pol_trurns-1)/2. )
+            th_imas_of_tglf = th + 2*np.pi*dum
+            th_sorted = th_imas_of_tglf
+            fields_list = list(self.output['eigenfunctions'][list(self.output['eigenfunctions'].keys())[-1]].keys())
+            fields_list.remove('theta')
+        except:
+            th_sorted = []
+        # eigenfunctions normalisations
+        tglf_eigenfunctions = {}
+        imas_eigenfunctions = {}
+        imas_eigenfunctions['phi'], imas_eigenfunctions['Bper'], imas_eigenfunctions['Bpar'] = np.zeros((3,len(th_sorted)))
+        try:
+            for fields_ in fields_list:
+                tglf_eigenfunctions[fields_] = self.output['eigenfunctions'][list(self.output['eigenfunctions'].keys())[-1]][fields_][1]
+                if fields_ == 'phi':
+                    imas_eigenfunctions[fields_] = tglf_eigenfunctions[fields_] * ((T_rat*rho_rat )/(q_rat*L_rat))
+                elif fields_ == 'Bper':
+                    imas_eigenfunctions[fields_] = tglf_eigenfunctions[fields_] * ((B_rat*rho_rat**2 )/(L_rat))
+                elif fields_ == 'Bpar':
+                    imas_eigenfunctions[fields_] = tglf_eigenfunctions[fields_] * ((B_rat*rho_rat )/(L_rat))
+                if self.output['input_gen']['SIGN_BT']*self.output['input_gen']['SIGN_IT']==1: # take complex conjugate if zeta and y in opposite directions
+                  imas_eigenfunctions[fields_]=np.conj(imas_eigenfunctions[fields_])
+            
+            # rotate and normalise eigenfunctions
+            # rotate_factor=exp(i*alpha) in IMAS documentation
+            th_fine = np.linspace(th_sorted[0],th_sorted[-1],len(th_sorted)*10)
+            f_re=interp1d(th_sorted,np.real(imas_eigenfunctions['phi']),kind='cubic')
+            f_im=interp1d(th_sorted,np.imag(imas_eigenfunctions['phi']),kind='cubic')
+            Imax=np.argmax(np.abs(f_re(th_fine) + 1j*f_im(th_fine)))
+            rotate_factor = f_re(th_fine)[Imax] + 1j*f_im(th_fine)[Imax]
+            rotate_factor = abs(rotate_factor)/rotate_factor
+            # mode amplitude 
+            amp_rat = np.sqrt(2*np.pi)/(np.sqrt(np.trapz(np.abs(imas_eigenfunctions['phi'])**2 
+                                                         + np.abs(imas_eigenfunctions['Bper'])**2 
+                                                         + np.abs(imas_eigenfunctions['Bpar'])**2,th_sorted)))
+        except:
+            if (not self.output['input_gen']['USE_TRANSPORT_MODEL']) :
+                if verbose:
+                    print('Warning, no wavefunctions to read for the file: ' + self.metadata['run_path'].split('/')[-2])
+            rotate_factor = 1.
+            amp_rat = 1.
+
         for i in range(number_of_ky):
             wave = {}
-            wave['radial_component_norm'] = self.output['input_gen']['KX0_LOC']*self.output['ky'][i]*(1/rho_rat) # TO DO: Be able to work with a list of kx values
-            wave['binormal_component_norm'] = self.output['ky'][i]*(1/rho_rat)
+            wave['radial_component_norm'] = self.output['input_gen']['KX0_LOC']*self.output['ky'][i]*(1/rho_rat) 
+            wave['binormal_component_norm'] = self.output['ky'][i]*abs(Gq)*(1/rho_rat) 
             wave['eigenmode'] = []
             for j in range(number_of_modes):
                 mode = {}
-                mode['poloidal_turns'] = []
                 mode['growth_rate_norm'] = self.output['eigenvalues']['gamma'][j+1][i]*(v_thrat/L_rat)
                 mode['frequency_norm'] = self.output['eigenvalues']['omega'][j+1][i]*(v_thrat/L_rat)
+                mode['poloidal_angle'] = th_sorted
                 mode['growth_rate_tolerance'] = []
                 mode['phi_potential_perturbed_weight'] = []
                 mode['phi_potential_perturbed_parity'] = []
@@ -1499,120 +1555,94 @@ class TGLF(DataSpine):
                 mode['a_field_parallel_perturbed_parity'] = []
                 mode['b_field_parallel_perturbed_weight'] = []
                 mode['b_field_parallel_perturbed_parity'] = []
-# TO DO                mode['poloidal_angle'] = []
-                mode['phi_potential_perturbed_norm'] = []
-                mode['a_field_parallel_perturbed_norm'] = []
-                mode['b_field_parallel_perturbed_norm'] = []
-# TO DO                mode['time_norm'] = []
+                mode['phi_potential_perturbed_norm'] = imas_eigenfunctions['phi']*rotate_factor*amp_rat
+                mode['a_field_parallel_perturbed_norm'] = -1*imas_eigenfunctions['Bper']*rotate_factor*amp_rat
+                mode['b_field_parallel_perturbed_norm'] = -1*imas_eigenfunctions['Bpar']*rotate_factor*amp_rat
+                mode['time_norm'] = []
                 
                 mode['fluxes_moments'] = []
                 for k in range(number_of_species):
+                    particle_flux_factor =  2.*((n_rat*v_thrat*rho_rat**2)/(L_rat**2)) * amp_rat**2 
+                    energy_flux_factor = 2.*((n_rat*v_thrat**T_rat*rho_rat**2)/(L_rat**2)) * amp_rat**2 
+                    momentum_flux_factor = 2.*((m_rat*n_rat*v_thrat**2*rho_rat**2)/(L_rat)) * amp_rat**2 
                     species = {}
-                    species['moments_norm_gyrocenter'] = {}
-                    species['moments_norm_gyrocenter']['density'] = [[np.nan],[np.nan]]
-                    species['moments_norm_gyrocenter']['density_gyroav'] = [[np.nan],[np.nan]]
-                    species['moments_norm_gyrocenter']['j_parallel'] = [[np.nan],[np.nan]]
-                    species['moments_norm_gyrocenter']['j_parallel_gyroav'] = [[np.nan],[np.nan]]
-                    species['moments_norm_gyrocenter']['pressure_parallel'] = [[np.nan],[np.nan]]
-                    species['moments_norm_gyrocenter']['pressure_parallel_gyroav'] = [[np.nan],[np.nan]]
-                    species['moments_norm_gyrocenter']['pressure_perpendicular'] = [[np.nan],[np.nan]]
-                    species['moments_norm_gyrocenter']['pressure_perpendicular_gyroav'] = [[np.nan],[np.nan]]
-                    species['moments_norm_gyrocenter']['heat_flux_parallel'] = [[np.nan],[np.nan]]
-                    species['moments_norm_gyrocenter']['heat_flux_parallel_gyroav'] = [[np.nan],[np.nan]]
-                    species['moments_norm_gyrocenter']['v_parallel_energy_perpendicular'] = [[np.nan],[np.nan]]
-                    species['moments_norm_gyrocenter']['v_parallel_energy_perpendicular_gyroav'] = [[np.nan],[np.nan]]
-                    species['moments_norm_gyrocenter']['v_perpendicular_square_energy'] = [[np.nan],[np.nan]]
-                    species['moments_norm_gyrocenter']['v_perpendicular_square_energy_gyroav'] = [[np.nan],[np.nan]]     
                     
-                    species['moments_norm_particle'] = {}
-                    species['moments_norm_particle']['density'] = [[np.nan],[np.nan]]
-                    species['moments_norm_particle']['j_parallel'] = [[np.nan],[np.nan]]
-                    species['moments_norm_particle']['pressure_parallel'] = [[np.nan],[np.nan]]
-                    species['moments_norm_particle']['pressure_perpendicular'] = [[np.nan],[np.nan]]
-                    species['moments_norm_particle']['heat_flux_parallel'] = [[np.nan],[np.nan]]
-                    species['moments_norm_particle']['v_parallel_energy_perpendicular'] = [[np.nan],[np.nan]]
-                    species['moments_norm_particle']['v_perpendicular_square_energy'] = [[np.nan],[np.nan]]
                     
-                    species['fluxes_norm_gyrocenter'] = {}
-                    species['fluxes_norm_gyrocenter']['particles_phi_potential'] = []
-                    species['fluxes_norm_gyrocenter']['particles_a_field_parallel'] = []
-                    species['fluxes_norm_gyrocenter']['particles_b_field_parallel'] = []
-                    species['fluxes_norm_gyrocenter']['energy_phi_potential'] = []
-                    species['fluxes_norm_gyrocenter']['energy_a_field_parallel'] = []
-                    species['fluxes_norm_gyrocenter']['energy_b_field_parallel'] = []
-                    species['fluxes_norm_gyrocenter']['momentum_tor_parallel_phi_potential'] = []
-                    species['fluxes_norm_gyrocenter']['momentum_tor_parallel_a_field_parallel'] = []
-                    species['fluxes_norm_gyrocenter']['momentum_tor_parallel_b_field_parallel'] = []
-                    species['fluxes_norm_gyrocenter']['momentum_tor_perpendicular_phi_potential'] = []
-                    species['fluxes_norm_gyrocenter']['momentum_tor_perpendicular_a_field_parallel'] = []
-                    species['fluxes_norm_gyrocenter']['momentum_tor_perpendicular_b_field_parallel'] = []
-                    
+                     
                     species['fluxes_norm_gyrocenter_rotating_frame'] = {}
-                    species['fluxes_norm_gyrocenter_rotating_frame']['particles_phi_potential'] = []
-                    species['fluxes_norm_gyrocenter_rotating_frame']['particles_a_field_parallel'] = []
-                    species['fluxes_norm_gyrocenter_rotating_frame']['particles_b_field_parallel'] = []
-                    species['fluxes_norm_gyrocenter_rotating_frame']['energy_phi_potential'] = []
-                    species['fluxes_norm_gyrocenter_rotating_frame']['energy_a_field_parallel'] = []
-                    species['fluxes_norm_gyrocenter_rotating_frame']['energy_b_field_parallel'] = []
-                    species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_phi_potential'] = []
-                    species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_a_field_parallel'] = []
-                    species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_b_field_parallel'] = []
-                    species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_phi_potential'] = []
-                    species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_a_field_parallel'] = []
-                    species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_b_field_parallel'] = []
                     
-                    species['fluxes_norm_particle'] = {}
-                    species['fluxes_norm_particle']['particles_phi_potential'] = []
-                    species['fluxes_norm_particle']['particles_a_field_parallel'] = []
-                    species['fluxes_norm_particle']['particles_b_field_parallel'] = []
-                    species['fluxes_norm_particle']['energy_phi_potential'] = []
-                    species['fluxes_norm_particle']['energy_a_field_parallel'] = []
-                    species['fluxes_norm_particle']['energy_b_field_parallel'] = []
-                    species['fluxes_norm_particle']['momentum_tor_parallel_phi_potential'] = []
-                    species['fluxes_norm_particle']['momentum_tor_parallel_a_field_parallel'] = []
-                    species['fluxes_norm_particle']['momentum_tor_parallel_b_field_parallel'] = []
-                    species['fluxes_norm_particle']['momentum_tor_perpendicular_phi_potential'] = []
-                    species['fluxes_norm_particle']['momentum_tor_perpendicular_a_field_parallel'] = []
-                    species['fluxes_norm_particle']['momentum_tor_perpendicular_b_field_parallel'] = []
+                    species['fluxes_norm_gyrocenter_rotating_frame']['particles_phi_potential'] = \
+                        particle_flux_factor * self.output['species'][k+1]['QL_weights']['Gamma']['phi'][j+1][-1]
                     
-                    species['fluxes_norm_particle_rotating_frame'] = {}
-                    species['fluxes_norm_particle_rotating_frame']['particles_phi_potential'] = []
-                    species['fluxes_norm_particle_rotating_frame']['particles_a_field_parallel'] = []
-                    species['fluxes_norm_particle_rotating_frame']['particles_b_field_parallel'] = []
-                    species['fluxes_norm_particle_rotating_frame']['energy_phi_potential'] = []
-                    species['fluxes_norm_particle_rotating_frame']['energy_a_field_parallel'] = []
-                    species['fluxes_norm_particle_rotating_frame']['energy_b_field_parallel'] = []
-                    species['fluxes_norm_particle_rotating_frame']['momentum_tor_parallel_phi_potential'] = []
-                    species['fluxes_norm_particle_rotating_frame']['momentum_tor_parallel_a_field_parallel'] = []
-                    species['fluxes_norm_particle_rotating_frame']['momentum_tor_parallel_b_field_parallel'] = []
-                    species['fluxes_norm_particle_rotating_frame']['momentum_tor_perpendicular_phi_potential'] = []
-                    species['fluxes_norm_particle_rotating_frame']['momentum_tor_perpendicular_a_field_parallel'] = []
-                    species['fluxes_norm_particle_rotating_frame']['momentum_tor_perpendicular_b_field_parallel'] = []
+                    if self.output['input_gen']['USE_BPER']:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['particles_a_field_parallel'] = \
+                            particle_flux_factor * self.output['species'][k+1]['QL_weights']['Gamma']['Bper'][j+1][-1]
+                    else:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['particles_a_field_parallel'] = []
+                    
+                    if self.output['input_gen']['USE_BPAR']:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['particles_b_field_parallel'] = \
+                            particle_flux_factor * self.output['species'][k+1]['QL_weights']['Gamma']['Bpar'][j+1][-1]
+                    else:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['particles_b_field_parallel'] = []
+                    
+                    
+                    
+                    species['fluxes_norm_gyrocenter_rotating_frame']['energy_phi_potential'] = energy_flux_factor *\
+                        self.output['species'][k+1]['QL_weights']['Q']['phi'][j+1][-1]
+                    
+                    if self.output['input_gen']['USE_BPER']:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['energy_a_field_parallel'] = energy_flux_factor *\
+                            self.output['species'][k+1]['QL_weights']['Q']['Bper'][j+1][-1]
+                    else:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['energy_a_field_parallel'] = []
+                        
+                    if self.output['input_gen']['USE_BPAR']:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['energy_b_field_parallel'] = energy_flux_factor *\
+                            self.output['species'][k+1]['QL_weights']['Q']['Bpar'][j+1][-1]
+                    else:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['energy_b_field_parallel'] = []
+                    
+                    
+                    
+                    species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_phi_potential'] = momentum_flux_factor *\
+                        self.output['species'][k+1]['QL_weights']['Pi_par']['phi'][j+1][-1]
+                    
+                    if self.output['input_gen']['USE_BPER']:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_a_field_parallel'] = momentum_flux_factor *\
+                            self.output['species'][k+1]['QL_weights']['Pi_par']['Bper'][j+1][-1]
+                    else:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_a_field_parallel'] = []
+                    
+                    if self.output['input_gen']['USE_BPAR']:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_b_field_parallel'] = momentum_flux_factor *\
+                            self.output['species'][k+1]['QL_weights']['Pi_par']['Bpar'][j+1][-1]
+                    else:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_b_field_parallel'] = []
+                    
+                    
+                    
+                    species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_phi_potential'] = momentum_flux_factor *\
+                        self.output['species'][k+1]['QL_weights']['Pi_tor']['phi'][j+1][-1]
+                    
+                    if self.output['input_gen']['USE_BPER']:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_a_field_parallel'] = momentum_flux_factor *\
+                            self.output['species'][k+1]['QL_weights']['Pi_tor']['Bper'][j+1][-1]
+                    else:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_a_field_parallel'] = []
+                    
+                    if self.output['input_gen']['USE_BPAR']:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_b_field_parallel'] = momentum_flux_factor *\
+                            self.output['species'][k+1]['QL_weights']['Pi_tor']['Bpar'][j+1][-1]
+                    else:
+                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_b_field_parallel'] = []
+                    
                     
                     mode['fluxes_moments'].append(species)
                 wave['eigenmode'].append(mode)
             self.ids['wavevector'].append(wave)
-            
-
-# TO DO: See how to put the values without the different contribution            
+        
         self.ids['fluxes_integrated_norm'] = []
-        for i in range(number_of_species):
-            dum = {}
-            dum['particles_phi_potential'] = []
-            dum['particles_a_field_parallel'] = []
-            dum['particles_b_field_parallel'] = []
-            dum['energy_phi_potential'] = []
-            dum['energy_a_field_parallel'] = []
-            dum['energy_b_field_parallel'] = []
-            dum['momentum_tor_parallel_phi_potential'] = []
-            dum['momentum_tor_parallel_a_field_parallel'] = []
-            dum['momentum_tor_parallel_b_field_parallel'] = []
-            dum['momentum_tor_perpendicular_phi_potential'] = []
-            dum['momentum_tor_perpendicular_a_field_parallel'] = []
-            dum['momentum_tor_perpendicular_b_field_parallel'] = []
-            self.ids['fluxes_integrated_norm'].append(dum)
-        
-        
         
         self.ids['code'] = {}
         self.ids['code']['name'] = 'TGLF'
@@ -1623,124 +1653,14 @@ class TGLF(DataSpine):
         self.ids['code']['output_flag'] = []
         self.ids['code']['library'] = []
         
-        self.ids['time'] = [np.nan,np.nan]
+        self.ids['time'] = []
         
         return
         
         
 
-    def _ids_input_to_tglf_input(ids,RMAJ_LOC=None):
-        """Convert an IMAS input object to a TGLF input file.
-        """
-        if not RMAJ_LOC:
-            try:
-                self.output['input_gen']
-                if 'RMAJ_LOC' in self.output['input_gen']:
-                    RMAJ_LOC = self.output['input_gen']['RMAJ_LOC']
-            except:
-                RMAJ_LOC = 1.0
-        else:
-            try:
-                RMAJ_LOC=float(RMAJ_LOC)
-            except:
-                print('Wrong value for RMAJ_LOC, should be a number')
-                return
-        
-        print('For the conversion from an IMAS input object to a TGLF input file,\
-                  \n We set: RMAJ_LOC = ',RMAJ_LOC)
-              
-        
-        # Obtain the Miller parametrisation coefficients from the ids input values
-        miller = _mxh_to_miller(ids)
-        
-        # Obtain the values of B_unit, B_rat, R and Z
-        metric = self._get_metric()
-        
-        # compute TGLF_ref/IMAS_ref ratio of reference quantities for TGLf to IMAS conversion
-        # reference charge ratio
-        q_tglf = 1.6021746e-19      #at: July 29, 2022
-        q_imas = 1.602176634e-19    #Last uptade: July 29, 2022
-        q_rat = q_tglf/q_imas
-        # reference mass ratio
-        m_tglf = 3.345e-27          #at: Last July 29, 2022
-        m_imas = 3.3435837724e-27   #Last uptade: July 29, 2022
-        m_rat = m_tglf/m_imas
-        # reference temperature ratio
-        T_rat = 1
-        # reference length ratio
-        L_rat = 1/RMAJ_LOC
-        # reference magnetic field ratio
-        B_rat = metric['B_rat']
-        # reference density ratio
-        n_rat = 1
-        # reference thermal velocity ratio
-        v_thrat = (1/np.sqrt(2))*(np.sqrt( T_rat/m_rat ))
-        # reference Larmor radius ratio
-        rho_rat = (m_rat*v_thrat)/(q_rat*B_rat)
 
 
-        
-        
-        
-        
-        
-        
-        inputs = {}
-        # self.input = {}
-        # inputs = {'RMIN_LOC' :self.ids['flux_surface']['r_minor_norm'] / L_rat ,
-        #           '' :  ,
-        #           '' :  ,
-        #           '' :  ,
-        #           '' :  ,
-        #           '' :  ,
-        #           '' :  ,
-        #           '' :  ,
-        #           '' :  ,
-        #           '' :  ,
-        #           '' :  ,
-                            
-        #           }
-
-        return inputs
-    def _ids_to_tglf(self):
-        """Convert TGLF data in IMAS gyrokinetic IDS/GKDB format to a TGLF object.
-        """
-        self.metadata = {}
-        metadata = { 'author':self.ids['ids_properties']['provider'] ,
-                    'date_created':self.ids['ids_properties']['creation_date'] ,
-                    'nky':len(self.ids['wavevector']) , 
-                    'nmodes':len(self.ids['wavevector'][0]['eigenmode']) , 
-                    'nspecies':len(self.ids['wavevector'][0]['eigenmode'][0]['fluxes_moments']) , 
-                    'run_date':self.ids['ids_properties']['creation_date'] , 
-                    'run_time':self.ids['ids_properties']['creation_date'] ,
-                    }
-        
-        merge_trees(metadata,self.metadata)
-        
-        self.output = {}
-        
-        self.output['eigenvalues'] = {}
-        self.output['eigenvalues']['gamma'] = {}
-        self.output['eigenvalues']['omega'] = {}
-        for i in range(self.metadata['nmodes']):
-            dum1 = []
-            dum2 = []
-            for j in range(self.metadata['nky']):
-                dum1.append(self.ids['wavevector'][j]['eigenmode'][i]['growth_rate_norm'])
-                dum2.append(self.ids['wavevector'][j]['eigenmode'][i]['frequency_norm'])
-            self.output['eigenvalues']['gamma'][i+1] = np.array(dum1)
-            self.output['eigenvalues']['omega'][i+1] = np.array(dum2)
-# TO DO: add the sign_convention        
-       
-# TO DO: input_gen
-        self.output['ky'] = {}
-        for i in range(self.metadata['nky']):
-            self.output['ky'][i] =  self.ids['wavevector'][i]['binormal_component_norm']
-# TO DO: sat_scalar_params
-      
-        
-        
-        return
 
     # run functions
     def run(self,path=None,gacode_platform=None,gacode_root=None,init_gacode=False,verbose=False,collect=None,collect_essential=True,eigenfunctions=False):
@@ -1904,7 +1824,7 @@ class TGLF(DataSpine):
                         'out.tglf.ky_spectrum':{'method':self.read_ky_spectrum,'essential':True},
                         'out.tglf.nsts_crossphase_spectrum':{'method':self.read_nsts_crossphase_spectrum,'essential':True},
                         'out.tglf.prec':{'method':self.read_prec,'essential':True},
-                        'out.tglf.QL_flux_spectrum':{'method':self.read_QL_flux_spectrum,'essential':False},
+                        'out.tglf.QL_flux_spectrum':{'method':self.read_QL_flux_spectrum,'essential':True},
                         'out.tglf.run':{'method':self.read_run,'essential':False},
                         'out.tglf.sat_geo_spectrum':{'method':self.read_sat_geo_spectrum,'essential':False},
                         'out.tglf.scalar_saturation_parameters':{'method':self.read_scalar_sat_parameters,'essential':True},
@@ -1945,6 +1865,8 @@ class TGLF(DataSpine):
             # switch of collect to only return the eigenfunction dict
             self.collect = False
             ky_list = list(self.output['ky'])
+            if essential:
+                ky_list = [self.output['ky'][-1]]
             # modify the inputs to get the eigenfunctions output
             self.input['NKY']=1
             self.input['USE_TRANSPORT_MODEL']='F'
