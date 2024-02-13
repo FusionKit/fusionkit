@@ -6,12 +6,16 @@
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib as mpl
+import matplotlib.font_manager as fm
+from matplotlib import rcParams
 
-if not '/home/anass/codes/gkw-pythontools/' in sys.path :
-    sys.path.append('/home/anass/codes/gkw-pythontools/')
+# Import the file FS_param.py from the repository IMAS-GK 
+# that can be found at https://gitlab.com/gkdb/imas-gk
+# it can be obtained with the command "git clone https://gitlab.com/gkdb/imas-gk.git"
+if not '/home/anass/codes/imas-gk/python/' in sys.path :
+    sys.path.append('/home/anass/codes/imas-gk/python/')
 from FS_param import *
-
-
 
 
 
@@ -32,7 +36,38 @@ def mxh_to_miller(ids):
      return { 'k':k[1],'d':d[1], 'z':z[1], 'sk':sk[1], 'sd':sd[1], 'sz':sz[1], 'Rmil':Rmil[1], 
              'Zmil':Zmil[1], 'r':r[1], 'dRmildr':dRmildr[1], 'dZmildr':dZmildr[1] }
 
-def get_metric_ids_tglf(miller,q):
+def mxh_to_miller_idspy(ids):
+    # Get the values of r, R and Z (R0 is supposed to be equal to 1 and Z0 to 0, IMAS normalisations)
+    r, R, Z = mxh2rz(ids.flux_surface.r_minor_norm, 1, 0,
+                     ids.flux_surface.elongation,
+                     ids.flux_surface.shape_coefficients_c,
+                     ids.flux_surface.shape_coefficients_s,
+                     ids.flux_surface.dgeometric_axis_r_dr_minor,
+                     ids.flux_surface.dgeometric_axis_z_dr_minor,
+                     ids.flux_surface.delongation_dr_minor_norm,
+                     ids.flux_surface.dc_dr_minor_norm,
+                     ids.flux_surface.ds_dr_minor_norm,
+                     code='imas', dr_frac=0.01, Nth=500)
+
+    # Get the miller coeffs parameters
+    k, d, z, sk, sd, sz, Rmil, Zmil, r, dRmildr, dZmildr = rz2miller(R, Z, code='tglf', doplots=False)
+    
+    return {
+        'k': k[1],
+        'd': d[1],
+        'z': z[1],
+        'sk': sk[1],
+        'sd': sd[1],
+        'sz': sz[1],
+        'Rmil': Rmil[1],
+        'Zmil': Zmil[1],
+        'r': r[1],
+        'dRmildr': dRmildr[1],
+        'dZmildr': dZmildr[1]
+    }
+
+
+def get_Brat_ids_tglf(miller,q):
     Nth=500
     k,d,z,sk,sd,sz,R0,Z0,r0,dRmildr,dZmildr = miller.values()
     drmildr = 1
@@ -59,9 +94,54 @@ def get_metric_ids_tglf(miller,q):
     J_r = -R*(dRdr*dZdth - dRdth*dZdr)
     dldth = np.sqrt((dRdth)**2+(dZdth)**2)
     grad_r = R/J_r*dldth
-    dpsidr = (sj/(q*2.0*np.pi)*np.trapz(J_r/R,th))
-    B_unit = (q/r)*dpsidr
     
     B_rat = R0/(2*np.pi*r)*np.trapz(dldth/(R*abs(grad_r)),th)
 
-    return {'B_unit':B_unit, 'B_rat':B_rat} 
+    return B_rat
+
+
+
+
+
+    
+
+    
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -6,7 +6,7 @@ NOTE: TGLF does not allow (unescaped) spaces in the run path!
 NOTE: run_path needs to end with a /
 '''
 import sys
-import os
+import os, glob
 import copy
 
 import numpy as np
@@ -14,13 +14,19 @@ import matplotlib.pyplot as plt
 
 from ..core.dataspine import DataSpine
 from ..core.utils import *
-from ..core.get_metric import *
+from ..core.get_metric_fusionkit import *
 
-# Import the file FS_param.py from the repository gkw-pythontools 
-# that can be found at bitbucket.org/gkw/gkw-pythontools.git
-# it can be obtained with the command "git clone git@bitbucket.org:gkw/gkw-pythontools.git"
-if not '/home/anass/codes/gkw-pythontools/' in sys.path :
-    sys.path.append('/home/anass/codes/gkw-pythontools/')
+from idspy_dictionaries import ids_gyrokinetics as gkids
+import idspy_toolkit as idspy
+
+# Import the file FS_param.py from the repository IMAS-GK 
+# that can be found at https://gitlab.com/gkdb/imas-gk
+# it can be obtained with the command "git clone https://gitlab.com/gkdb/imas-gk.git"
+if not '/home/anass/codes/imas-gk/python/' in sys.path :
+    sys.path.append('/home/anass/codes/imas-gk/python/')
+
+if not '/home/anass/codes/imas-gk/gkids/tools' in sys.path :
+    sys.path.append('/home/anass/codes/imas-gk/gkids/tools')
 from FS_param import *
 
 CURSOR_UP_ONE = '\x1b[1A'
@@ -200,11 +206,13 @@ class TGLF(DataSpine):
                     if row[0+i_mode*2] != 0:
                         eigenvalues['gamma'][key_mode].append(row[0+i_mode*2])
                     else:
-                        eigenvalues['gamma'][key_mode].append(np.NaN)
+#                        eigenvalues['gamma'][key_mode].append(np.NaN)
+                        eigenvalues['gamma'][key_mode].append(0.0)
                     if row[1+i_mode*2] != 0:
                         eigenvalues['omega'][key_mode].append(sign_convention*row[1+i_mode*2])
                     else:
-                        eigenvalues['omega'][key_mode].append(np.NaN)
+#                        eigenvalues['omega'][key_mode].append(np.NaN)
+                        eigenvalues['omega'][key_mode].append(0.0)
 
             eigenvalues = list_to_array(eigenvalues)
             
@@ -1249,7 +1257,7 @@ class TGLF(DataSpine):
 
     def _get_B_rat(self):
         '''
-        Return B_rat, the ratio between the reference magnetic fieldof TGLF and IMAS
+        Return B_rat, the ratio between the reference magnetic field of TGLF and IMAS
         '''
         # Nuber of points in the theta grid
         Nth=289
@@ -1325,9 +1333,393 @@ class TGLF(DataSpine):
                 'dcdr':dcdr  ,  's':s  ,  'dsdr':dsdr  ,  'R_out':R_out ,
                 'Z_out':Z_out }
 
-    def _tglf_to_ids(self,verbose=True):
+#     def _tglf_to_ids(self,verbose=True):
+#         """Convert a TGLF object to IMAS gyrokinetic IDS/GKDB format.
+#         """
+#         # Check if the code has been launched, else, need to run the code first        
+#         try:
+#             self.output['input_gen']
+#         except:
+#             try:
+#                 self.collect_output(eigenfunctions=True)
+#             except:
+#                 if verbose:
+#                     print('There are no values in the TGLF object to convert to an ids \
+#                           \n(input.tglf.gen file is missing and self.collect_output failed)')
+#                     print('You need to launch the code first. \
+#                           \nTry self.run() or read the help in fusionkit/extensions/Fusionkit.tglf_example')
+#                 return
+        
+#         # Obtain the Miller eXtended Harmonics (MXH) parametrisation coefficients from the TGLF input values
+#         mhx = self._miller_to_mxh()
+        
+#         # compute TGLF_ref/IMAS_ref ratio of reference quantities for TGLf to IMAS conversion
+#         # reference charge ratio
+#         q_tglf = 1.6021746e-19      #at: July 29, 2022 See: https://gafusion.github.io/doc/tglf.html
+#         q_imas = 1.602176634e-19    #Last uptade: July 29, 2022 ; IMAS: 3.22.0
+#         q_rat = q_tglf/q_imas
+#         # reference mass ratio
+#         m_tglf = 3.345e-27          #at: Last July 29, 2022 See: https://gafusion.github.io/doc/tglf.html
+#         m_imas = 3.3435837724e-27   #Last uptade: July 29, 2022 ; IMAS: 3.22.0
+#         m_rat = m_tglf/m_imas
+#         # reference temperature ratio
+#         T_rat = 1
+#         # reference length ratio
+#         L_rat =  1/self.output['input_gen']['RMAJ_LOC'] 
+#         # reference magnetic field ratio
+#         B_rat = self._get_B_rat()
+#         # reference density ratio
+#         n_rat = 1
+#         # reference thermal velocity ratio
+#         v_thrat = (1/np.sqrt(2))*(np.sqrt( T_rat/m_rat ))
+#         # reference Larmor radius ratio
+#         rho_rat = (m_rat*v_thrat)/(q_rat*B_rat)
+
+
+
+#         self.ids = {}
+        
+#         self.ids['ids_properties'] = {}
+#         self.ids['ids_properties']['comment'] = 'This gyrokinetic run performed with the code TGLF'
+#         self.ids['ids_properties']['homogeneous_time'] = 2
+#         self.ids['ids_properties']['provider'] = os.environ.get('USERNAME')
+#         self.ids['ids_properties']['creation_date'] = self.metadata['run_date'] + '   ' + self.metadata['run_time']
+#         self.ids['ids_properties']['version_put'] = {}
+#         self.ids['ids_properties']['version_put']['data_dictionary'] = 'Last change occured on version: 3.32.0'
+#         self.ids['ids_properties']['version_put']['access_layer'] = 'Last change occured on version: 3.32.0'
+#         self.ids['ids_properties']['version_put']['access_layer_language'] = 'Python'
+#         self.ids['ids_properties']['provenance'] = {}
+#         self.ids['ids_properties']['provenance']['node'] = {}
+#         self.ids['ids_properties']['provenance']['node'][1] = {}
+#         self.ids['ids_properties']['provenance']['node'][1]['path'] = ''
+#         self.ids['ids_properties']['provenance']['node'][1]['sources'] = ''
+        
+#         self.ids['tag'] = {}
+#         self.ids['tag']['name'] = 'no tag'
+#         self.ids['tag']['comment'] = 'no comment'
+        
+#         self.ids['normalizing_quantities'] = {}
+#         self.ids['normalizing_quantities']['t_e'] = []
+#         self.ids['normalizing_quantities']['n_e'] = []
+#         self.ids['normalizing_quantities']['r'] = []
+#         self.ids['normalizing_quantities']['b_field_tor'] = []
+
+#         self.ids['flux_surface'] = {}
+#         self.ids['flux_surface']['r_minor_norm'] = self.output['input_gen']['RMIN_LOC'] * L_rat
+#         self.ids['flux_surface']['elongation'] = mhx['k']
+#         self.ids['flux_surface']['delongation_dr_minor_norm'] = mhx['dkdr']
+#         self.ids['flux_surface']['dgeometric_axis_r_dr_minor'] = mhx['dR0dr']
+#         self.ids['flux_surface']['dgeometric_axis_z_dr_minor'] = mhx['dZ0dr']
+#         self.ids['flux_surface']['q'] = self.output['input_gen']['SIGN_BT']*\
+#             self.output['input_gen']['SIGN_IT']*self.output['input_gen']['Q_LOC']
+#         self.ids['flux_surface']['magnetic_shear_r_minor'] = (self.output['input_gen']['RMIN_LOC']/\
+#             abs(self.output['input_gen']['Q_LOC']))**2 * self.output['input_gen']['Q_PRIME_LOC']
+#         self.ids['flux_surface']['pressure_gradient_norm'] = (-8*np.pi)*(B_rat**2/L_rat)*\
+#             (self.output['input_gen']['RMIN_LOC']/(self.output['input_gen']['Q_LOC'])) *\
+#             self.output['input_gen']['P_PRIME_LOC']        
+#         self.ids['flux_surface']['ip_sign'] = self.output['input_gen']['SIGN_IT']
+#         self.ids['flux_surface']['b_field_tor_sign'] = self.output['input_gen']['SIGN_BT']
+#         self.ids['flux_surface']['shape_coefficients_c'] = mhx['c']
+#         self.ids['flux_surface']['dc_dr_minor_norm'] = mhx['dcdr']
+#         self.ids['flux_surface']['shape_coefficients_s'] = mhx['s']
+#         self.ids['flux_surface']['ds_dr_minor_norm'] = mhx['dsdr']
+        
+#         self.ids['model'] = {}
+#         self.ids['model']['include_centrifugal_effects'] = int(False)
+#         self.ids['model']['include_a_field_parallel'] = int(self.output['input_gen']['USE_BPER'])
+#         self.ids['model']['include_b_field_parallel'] = int(self.output['input_gen']['USE_BPAR'])
+#         self.ids['model']['include_full_curvature_drift'] = int(not self.output['input_gen']['USE_MHD_RULE'])
+#         self.ids['model']['collisions_pitch_only'] = int(True)
+#         self.ids['model']['collisions_momentum_conservation'] = int(False)
+#         self.ids['model']['collisions_energy_conservation'] = int(False)
+#         self.ids['model']['collisions_finite_larmor_radius'] = int(False)
+#         self.ids['model']['non_linear_run'] = []
+#         self.ids['model']['time_interval_norm'] = []
+        
+#         self.ids['species_all'] = {}
+#         self.ids['species_all']['beta_reference'] = self.output['input_gen']['BETAE']*(B_rat**2)/(1.5*n_rat*T_rat) 
+        
+#         number_of_species = self.output['input_gen']['NS']
+        
+        
+#         Vpar = []
+#         for i in range(number_of_species):
+#             Vpar.append(self.output['input_gen']['VPAR_'+str(i+1)])
+#         if all(x==Vpar[0] for x in Vpar):
+#             self.ids['species_all']['velocity_tor_norm'] = self.output['input_gen']['SIGN_IT']*self.output['input_gen']['VPAR_1']*(v_thrat/L_rat)
+#         else:
+#             print('Warning: Wrong values for velocity_tor_norm. (All species are assumed to have\
+#                   \n a purely toroidal flow with a COMMON toroidal angular frequency)')
+#             self.ids['species_all']['velocity_tor_norm'] = []
+        
+#         self.ids['species_all']['zeff'] = self.output['input_gen']['ZEFF']
+
+
+#         self.ids['species'] = []
+#         for i in range(number_of_species):
+#             dum = {}
+#             dum['charge_norm'] = self.output['input_gen']['ZS_'+str(i+1)]*q_rat
+#             dum['mass_norm'] = self.output['input_gen']['MASS_'+str(i+1)]*m_rat
+#             dum['density_norm'] = self.output['input_gen']['AS_'+str(i+1)]*n_rat
+#             dum['density_log_gradient_norm'] = self.output['input_gen']['RLNS_'+str(i+1)]/L_rat
+#             dum['temperature_norm'] = self.output['input_gen']['TAUS_'+str(i+1)]*T_rat
+#             dum['temperature_log_gradient_norm'] = self.output['input_gen']['RLTS_'+str(i+1)]/L_rat
+#             dum['velocity_tor_gradient_norm'] = self.output['input_gen']['VPAR_SHEAR_'+str(i+1)]/(L_rat)*v_thrat*self.output['input_gen']['SIGN_IT']
+#             self.ids['species'].append(dum)
+            
+#         self.ids['collisions'] = {}
+#         # Find electron/main ion index
+#         mass_max = 0.
+#         for i in range(len(self.ids['species'])):
+#             charge = self.ids['species'][i]['charge_norm']
+#             mass = self.ids['species'][i]['mass_norm']
+#             if charge < 0.:
+#                 index_electron = i
+#             if mass > mass_max:
+#                 mass_max = mass
+#                 index_main_ion = i
+#         self.ids['collisions']['collisionality_norm'] = np.full((len(self.ids['species']),len(self.ids['species'])),0.)
+#         self.ids['collisions']['collisionality_norm'][index_electron][index_main_ion] = self.output['input_gen']['XNUE']*(v_thrat/L_rat)
+        
+        
+#         self.ids['wavevector'] = []
+#         number_of_ky = len(self.output['ky'])
+#         number_of_modes = self.output['input_gen']['NMODES']
+#         Gq = get_metric(self.ids,np.linspace(0,2*np.pi,501))['Gq'][0]
+#         gradr = get_metric(self.ids,np.linspace(0,2*np.pi,501))['grad_r'][0]
+        
+#         # compute theta_imas=f(theta_tglf)
+#         try:
+#             th_tglf = self.output['eigenfunctions'][list(self.output['eigenfunctions'].keys())[-1]]['theta']
+#             nb_pol_trurns = (max(th_tglf)-min(th_tglf))/(2*np.pi)
+#             R_dum = self.output['input_gen']['RMAJ_LOC'] + self.output['input_gen']['RMIN_LOC']* \
+#                 np.cos(th_tglf + np.arcsin(self.output['input_gen']['DELTA_LOC'])*np.sin(th_tglf))
+#             Z_dum = self.output['input_gen']['KAPPA_LOC']*self.output['input_gen']['RMIN_LOC']* \
+#                 np.sin(th_tglf + self.output['input_gen']['ZETA_LOC']*np.sin(2*th_tglf))
+#             th = np.arctan2((Z_dum),R_dum-self.output['input_gen']['RMAJ_LOC'])
+#             dum = np.cumsum(np.concatenate(([False],abs(np.diff(th))>np.pi)))
+#             dum = dum - ((nb_pol_trurns-1)/2. )
+#             th_imas_of_tglf = th + 2*np.pi*dum
+#             th_sorted = th_imas_of_tglf
+#             fields_list = list(self.output['eigenfunctions'][list(self.output['eigenfunctions'].keys())[-1]].keys())
+#             fields_list.remove('theta')
+#         except:
+#             th_sorted = []
+#         # eigenfunctions normalisations
+#         tglf_eigenfunctions = {}
+#         imas_eigenfunctions = {}
+#         imas_eigenfunctions['phi'], imas_eigenfunctions['Bper'], imas_eigenfunctions['Bpar'] = np.zeros((3,len(th_sorted)))
+#         try:
+#             for fields_ in fields_list:
+#                 tglf_eigenfunctions[fields_] = self.output['eigenfunctions'][list(self.output['eigenfunctions'].keys())[-1]][fields_][1]
+#                 if fields_ == 'phi':
+#                     imas_eigenfunctions[fields_] = tglf_eigenfunctions[fields_] * ((T_rat*rho_rat )/(q_rat*L_rat))
+#                 elif fields_ == 'Bper':
+#                     imas_eigenfunctions[fields_] = tglf_eigenfunctions[fields_] * ((B_rat*rho_rat**2 )/(L_rat))
+#                 elif fields_ == 'Bpar':
+#                     imas_eigenfunctions[fields_] = tglf_eigenfunctions[fields_] * ((B_rat*rho_rat )/(L_rat))
+#                 if self.output['input_gen']['SIGN_BT']*self.output['input_gen']['SIGN_IT']==1: # take complex conjugate if zeta and y in opposite directions
+#                   imas_eigenfunctions[fields_]=np.conj(imas_eigenfunctions[fields_])
+            
+#             # rotate and normalise eigenfunctions
+#             # rotate_factor=exp(i*alpha) in IMAS documentation
+#             th_fine = np.linspace(th_sorted[0],th_sorted[-1],len(th_sorted)*10)
+#             f_re=interp1d(th_sorted,np.real(imas_eigenfunctions['phi']),kind='cubic')
+#             f_im=interp1d(th_sorted,np.imag(imas_eigenfunctions['phi']),kind='cubic')
+#             Imax=np.argmax(np.abs(f_re(th_fine) + 1j*f_im(th_fine)))
+#             rotate_factor = f_re(th_fine)[Imax] + 1j*f_im(th_fine)[Imax]
+#             rotate_factor = abs(rotate_factor)/rotate_factor
+#             # mode amplitude 
+#             # amp_rat = np.sqrt(2*np.pi)/(np.sqrt(np.trapz(np.abs(imas_eigenfunctions['phi'])**2 
+#             #                                               + np.abs(imas_eigenfunctions['Bper'])**2 
+#             #                                               + np.abs(imas_eigenfunctions['Bpar'])**2,th_sorted)))
+#             # amp_rat = np.sqrt(np.trapz(np.abs(tglf_eigenfunctions['phi'])**2,th_tglf)) * np.sqrt(self.output['gaussian_width'][-1])/(np.sqrt(np.trapz(np.abs(imas_eigenfunctions['phi'])**2 
+#             #                                               + np.abs(imas_eigenfunctions['Bper'])**2 
+#             #                                               + np.abs(imas_eigenfunctions['Bpar'])**2,th_sorted)))
+
+
+#             # amp_rat = np.sqrt(np.trapz(np.abs(tglf_eigenfunctions['phi'])**2,th_tglf)) * np.sqrt(2)/(np.sqrt(np.trapz(np.abs(imas_eigenfunctions['phi'])**2 
+#             #                                               + np.abs(imas_eigenfunctions['Bper'])**2 
+#             #                                               + np.abs(imas_eigenfunctions['Bpar'])**2,th_sorted)))
+            
+                                                                              
+#             amp_rat = np.sqrt(2*np.pi)/(np.sqrt(np.trapz(np.abs(imas_eigenfunctions['phi'])**2 
+#                                                           + np.abs(imas_eigenfunctions['Bper'])**2 
+#                                                           + np.abs(imas_eigenfunctions['Bpar'])**2,th_tglf)))
+            
+            
+            
+#         except:
+#             if (not self.output['input_gen']['USE_TRANSPORT_MODEL']) :
+#                 if verbose:
+#                     print('Warning, no wavefunctions to read for the file: ' + self.metadata['run_path'].split('/')[-2])
+#             rotate_factor = 1.
+#             amp_rat = 1.
+
+#         for i in range(number_of_ky):
+#             wave = {}
+#             wave['radial_component_norm'] = self.output['input_gen']['KX0_LOC']*self.output['ky'][i]*(1/rho_rat)*abs(gradr)
+#             wave['binormal_component_norm'] = self.output['ky'][i]*abs(Gq)*(1/rho_rat) 
+#             wave['eigenmode'] = []
+#             for j in range(number_of_modes):
+#                 mode = {}
+#                 mode['growth_rate_norm'] = self.output['eigenvalues']['gamma'][j+1][i]*(v_thrat/L_rat)
+#                 mode['frequency_norm'] = self.output['eigenvalues']['omega'][j+1][i]*(v_thrat/L_rat)
+#                 mode['poloidal_angle'] = th_sorted
+#                 mode['growth_rate_tolerance'] = []
+#                 mode['phi_potential_perturbed_weight'] = []
+#                 mode['phi_potential_perturbed_parity'] = []
+#                 mode['a_field_parallel_perturbed_weight'] = []
+#                 mode['a_field_parallel_perturbed_parity'] = []
+#                 mode['b_field_parallel_perturbed_weight'] = []
+#                 mode['b_field_parallel_perturbed_parity'] = []
+#                 mode['phi_potential_perturbed_norm'] = imas_eigenfunctions['phi']*rotate_factor*amp_rat
+#                 mode['a_field_parallel_perturbed_norm'] = -1*imas_eigenfunctions['Bper']*rotate_factor*amp_rat
+#                 mode['b_field_parallel_perturbed_norm'] = -1*imas_eigenfunctions['Bpar']*rotate_factor*amp_rat
+#                 mode['time_norm'] = []
+                
+#                 mode['fluxes_moments'] = []
+#                 for k in range(number_of_species):
+#                     particle_flux_factor =  2.*((n_rat*v_thrat*rho_rat**2)/(L_rat**2)) * amp_rat**2 
+#                     energy_flux_factor = 2.*((n_rat*v_thrat*T_rat*rho_rat**2)/(L_rat**2)) * amp_rat**2 
+#                     momentum_flux_factor = 2.*((m_rat*n_rat*v_thrat**2*rho_rat**2)/(L_rat**2)) * amp_rat**2 
+                    
+#                     if self.output['input_gen']['AS_'+str(k+1)] != 0.0:
+#                         particle_flux_factor /= self.output['input_gen']['AS_'+str(k+1)]
+#                         energy_flux_factor /= self.output['input_gen']['AS_'+str(k+1)]
+#                         momentum_flux_factor /= self.output['input_gen']['AS_'+str(k+1)]
+                    
+                    
+                    
+#                     species = {}
+                    
+                    
+                    
+#                     species['fluxes_norm_gyrocenter_rotating_frame'] = {}
+                    
+#                     species['fluxes_norm_gyrocenter_rotating_frame']['particles_phi_potential'] = \
+#                         particle_flux_factor * self.output['species'][k+1]['QL_weights']['Gamma']['phi'][j+1][-1]
+                    
+#                     if self.output['input_gen']['USE_BPER']:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['particles_a_field_parallel'] = \
+#                             particle_flux_factor * self.output['species'][k+1]['QL_weights']['Gamma']['Bper'][j+1][-1]
+#                     else:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['particles_a_field_parallel'] = []
+                    
+#                     if self.output['input_gen']['USE_BPAR']:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['particles_b_field_parallel'] = \
+#                             particle_flux_factor * self.output['species'][k+1]['QL_weights']['Gamma']['Bpar'][j+1][-1]
+#                     else:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['particles_b_field_parallel'] = []
+                    
+                    
+                    
+#                     species['fluxes_norm_gyrocenter_rotating_frame']['energy_phi_potential'] = energy_flux_factor *\
+#                         self.output['species'][k+1]['QL_weights']['Q']['phi'][j+1][-1]
+                    
+#                     if self.output['input_gen']['USE_BPER']:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['energy_a_field_parallel'] = energy_flux_factor *\
+#                             self.output['species'][k+1]['QL_weights']['Q']['Bper'][j+1][-1]
+#                     else:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['energy_a_field_parallel'] = []
+                        
+#                     if self.output['input_gen']['USE_BPAR']:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['energy_b_field_parallel'] = energy_flux_factor *\
+#                             self.output['species'][k+1]['QL_weights']['Q']['Bpar'][j+1][-1]
+#                     else:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['energy_b_field_parallel'] = []
+                    
+                    
+                    
+#                     species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_phi_potential'] = momentum_flux_factor *\
+#                         self.output['species'][k+1]['QL_weights']['Pi_par']['phi'][j+1][-1]
+                    
+#                     if self.output['input_gen']['USE_BPER']:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_a_field_parallel'] = momentum_flux_factor *\
+#                             self.output['species'][k+1]['QL_weights']['Pi_par']['Bper'][j+1][-1]
+#                     else:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_a_field_parallel'] = []
+                    
+#                     if self.output['input_gen']['USE_BPAR']:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_b_field_parallel'] = momentum_flux_factor *\
+#                             self.output['species'][k+1]['QL_weights']['Pi_par']['Bpar'][j+1][-1]
+#                     else:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_b_field_parallel'] = []
+                    
+                    
+                    
+#                     species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_phi_potential'] = momentum_flux_factor *\
+#                         (self.output['species'][k+1]['QL_weights']['Pi_tor']['phi'][j+1][-1]-self.output['species'][k+1]['QL_weights']['Pi_par']['phi'][j+1][-1])
+                    
+#                     if self.output['input_gen']['USE_BPER']:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_a_field_parallel'] = momentum_flux_factor *\
+#                             (self.output['species'][k+1]['QL_weights']['Pi_tor']['Bper'][j+1][-1]-self.output['species'][k+1]['QL_weights']['Pi_par']['Bper'][j+1][-1])
+#                     else:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_a_field_parallel'] = []
+                    
+#                     if self.output['input_gen']['USE_BPAR']:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_b_field_parallel'] = momentum_flux_factor *\
+#                             (self.output['species'][k+1]['QL_weights']['Pi_tor']['Bpar'][j+1][-1]-self.output['species'][k+1]['QL_weights']['Pi_par']['Bpar'][j+1][-1])
+#                     else:
+#                         species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_b_field_parallel'] = []
+                    
+                    
+#                     mode['fluxes_moments'].append(species)
+#                 wave['eigenmode'].append(mode)
+#             self.ids['wavevector'].append(wave)
+        
+#         self.ids['fluxes_integrated_norm'] = []
+#         fluxes={'name': ('particles','momentum_parallel','heat'),
+#                 'field': ('phi','apar','bpar'),
+#                 'is_field': (True,self.output['input_gen']['USE_BPER'],self.output['input_gen']['USE_BPAR']),
+#                 'imas_name': ('particles_phi_potential','momentum_tor_parallel_phi_potential','energy_phi_potential',
+#                               'particles_a_field_parallel','momentum_tor_parallel_a_field_parallel','energy_a_field_parallel',
+#                               'particles_b_field_parallel','momentum_tor_parallel_b_field_parallel','energy_b_field_parallel'),
+#                 'common_norm_fac': (rho_rat/L_rat)**2*v_thrat*n_rat,
+#                 'norm_fac': (np.ones(number_of_species),m_rat*L_rat*v_thrat*np.ones(number_of_species),T_rat*np.ones(number_of_species))
+#                }
+# #       ATTENTION!!!! POUR L INSTANT JE MET LA SOMME DE TOUT DANS phi bper et bpar
+#         tglf_flux_name = ['Gamma','Pi','Q']
+#         tglf_field_name = ['phi','Bper','Bpar']
+#         for ii_sp in range(number_of_species):
+#           dum={}
+#           for ii, field in enumerate(tglf_field_name):
+#             for jj, name in enumerate(tglf_flux_name):
+#               dum[fluxes['imas_name'][ii*3+jj]]=[]
+#               if fluxes['is_field'][ii]:
+#                   tglf_flux = self.output['species'][ii_sp+1]['fluxes'][name]['total']
+#                   #print('tglf_flux = ',tglf_flux)
+#                   #print(fluxes['imas_name'][ii*3+jj])
+#                   dum[fluxes['imas_name'][ii*3+jj]] = tglf_flux*fluxes['common_norm_fac']*fluxes['norm_fac'][jj][ii_sp]
+#               else:
+#                 print("Missing data, can not convert lab frame "+field+" "+name+" flux to IMAS for species "+str(ii_sp))
+#           self.ids['fluxes_integrated_norm'].append(dum)
+            
+        
+        
+#         self.ids['code'] = {}
+#         self.ids['code']['name'] = 'TGLF'
+#         self.ids['code']['commit'] = self.metadata['version']
+#         self.ids['code']['version'] = self.metadata['framework_version']
+#         self.ids['code']['repository'] = 'https://gafusion.github.io/doc/tglf.html'
+#         self.ids['code']['parameters'] = []
+#         self.ids['code']['output_flag'] = []
+#         self.ids['code']['library'] = []
+        
+#         self.ids['time'] = []
+        
+#         return
+        
+        
+
+    def _tglf_to_idspy(self,verbose=True):
         """Convert a TGLF object to IMAS gyrokinetic IDS/GKDB format.
         """
+        
+        # initialise an empty GK IDS structure
+        self.ids=gkids.Gyrokinetics()
+        idspy.fill_default_values_ids(self.ids)
+    
         # Check if the code has been launched, else, need to run the code first        
         try:
             self.output['input_gen']
@@ -1369,122 +1761,93 @@ class TGLF(DataSpine):
 
 
 
-        self.ids = {}
-        
-        self.ids['ids_properties'] = {}
-        self.ids['ids_properties']['comment'] = 'This gyrokinetic run performed with the code TGLF'
-        self.ids['ids_properties']['homogeneous_time'] = 2
-        self.ids['ids_properties']['provider'] = os.environ.get('USERNAME')
-        self.ids['ids_properties']['creation_date'] = self.metadata['run_date'] + '   ' + self.metadata['run_time']
-        self.ids['ids_properties']['version_put'] = {}
-        self.ids['ids_properties']['version_put']['data_dictionary'] = 'Last change occured on version: 3.32.0'
-        self.ids['ids_properties']['version_put']['access_layer'] = 'Last change occured on version: 3.32.0'
-        self.ids['ids_properties']['version_put']['access_layer_language'] = 'Python'
-        self.ids['ids_properties']['provenance'] = {}
-        self.ids['ids_properties']['provenance']['node'] = {}
-        self.ids['ids_properties']['provenance']['node'][1] = {}
-        self.ids['ids_properties']['provenance']['node'][1]['path'] = ''
-        self.ids['ids_properties']['provenance']['node'][1]['sources'] = ''
-        
-        self.ids['tag'] = {}
-        self.ids['tag']['name'] = 'no tag'
-        self.ids['tag']['comment'] = 'no comment'
-        
-        self.ids['normalizing_quantities'] = {}
-        self.ids['normalizing_quantities']['t_e'] = []
-        self.ids['normalizing_quantities']['n_e'] = []
-        self.ids['normalizing_quantities']['r'] = []
-        self.ids['normalizing_quantities']['b_field_tor'] = []
+        self.ids.ids_properties.comment = 'This gyrokinetic run performed with the code TGLF'
+        self.ids.ids_properties.homogeneous_time = 2
+        self.ids.ids_properties.provider = os.environ.get('USERNAME')
+        self.ids.ids_properties.creation_date = self.metadata['run_date'] + '   ' + self.metadata['run_time']
+        #self.ids.ids_properties.version_put.data_dictionary = 'Last change occured on version: 3.32.0'
+        #self.ids.ids_properties.version_put.access_layer = 'Last change occured on version: 3.32.0'
+        #self.ids.ids_properties.version_put.access_layer_language = 'Python'
 
-        self.ids['flux_surface'] = {}
-        self.ids['flux_surface']['r_minor_norm'] = self.output['input_gen']['RMIN_LOC'] * L_rat
-        self.ids['flux_surface']['elongation'] = mhx['k']
-        self.ids['flux_surface']['delongation_dr_minor_norm'] = mhx['dkdr']
-        self.ids['flux_surface']['dgeometric_axis_r_dr_minor'] = mhx['dR0dr']
-        self.ids['flux_surface']['dgeometric_axis_z_dr_minor'] = mhx['dZ0dr']
-        self.ids['flux_surface']['q'] = self.output['input_gen']['SIGN_BT']*\
+
+        self.ids.flux_surface.r_minor_norm = self.output['input_gen']['RMIN_LOC'] * L_rat
+        self.ids.flux_surface.elongation = mhx['k']
+        self.ids.flux_surface.delongation_dr_minor_norm = mhx['dkdr']
+        self.ids.flux_surface.dgeometric_axis_r_dr_minor = mhx['dR0dr']
+        self.ids.flux_surface.dgeometric_axis_z_dr_minor = mhx['dZ0dr']
+        self.ids.flux_surface.q = self.output['input_gen']['SIGN_BT']*\
             self.output['input_gen']['SIGN_IT']*self.output['input_gen']['Q_LOC']
-        self.ids['flux_surface']['magnetic_shear_r_minor'] = (self.output['input_gen']['RMIN_LOC']/\
-            self.output['input_gen']['Q_LOC'])**2 * self.output['input_gen']['Q_PRIME_LOC']
-        self.ids['flux_surface']['pressure_gradient_norm'] = (-8*np.pi)*(B_rat**2/L_rat)*\
-            (self.output['input_gen']['RMIN_LOC']/(self.output['input_gen']['SIGN_BT']*\
-            self.output['input_gen']['SIGN_IT']*self.output['input_gen']['Q_LOC'])) *\
+        self.ids.flux_surface.magnetic_shear_r_minor = (self.output['input_gen']['RMIN_LOC']/\
+            abs(self.output['input_gen']['Q_LOC']))**2 * self.output['input_gen']['Q_PRIME_LOC']
+        self.ids.flux_surface.pressure_gradient_norm = (-8*np.pi)*(B_rat**2/L_rat)*\
+            (self.output['input_gen']['RMIN_LOC']/(self.output['input_gen']['Q_LOC'])) *\
             self.output['input_gen']['P_PRIME_LOC']        
-        self.ids['flux_surface']['ip_sign'] = self.output['input_gen']['SIGN_IT']
-        self.ids['flux_surface']['b_field_tor_sign'] = self.output['input_gen']['SIGN_BT']
-        self.ids['flux_surface']['shape_coefficients_c'] = mhx['c']
-        self.ids['flux_surface']['dc_dr_minor_norm'] = mhx['dcdr']
-        self.ids['flux_surface']['shape_coefficients_s'] = mhx['s']
-        self.ids['flux_surface']['ds_dr_minor_norm'] = mhx['dsdr']
-                
-        self.ids['model'] = {}
-        self.ids['model']['include_centrifugal_effects'] = int(False)
-        self.ids['model']['include_a_field_parallel'] = int(self.output['input_gen']['USE_BPER'])
-        self.ids['model']['include_b_field_parallel'] = int(self.output['input_gen']['USE_BPAR'])
-        self.ids['model']['include_full_curvature_drift'] = int(not self.output['input_gen']['USE_MHD_RULE'])
-        self.ids['model']['collisions_pitch_only'] = int(True)
-        self.ids['model']['collisions_momentum_conservation'] = int(False)
-        self.ids['model']['collisions_energy_conservation'] = int(False)
-        self.ids['model']['collisions_finite_larmor_radius'] = int(False)
-        self.ids['model']['non_linear_run'] = []
-        self.ids['model']['time_interval_norm'] = []
+        self.ids.flux_surface.ip_sign = self.output['input_gen']['SIGN_IT']
+        self.ids.flux_surface.b_field_tor_sign = self.output['input_gen']['SIGN_BT']
+        self.ids.flux_surface.shape_coefficients_c = mhx['c']
+        self.ids.flux_surface.dc_dr_minor_norm = mhx['dcdr']
+        self.ids.flux_surface.shape_coefficients_s = mhx['s']
+        self.ids.flux_surface.ds_dr_minor_norm = mhx['dsdr']
         
-        self.ids['species_all'] = {}
-        self.ids['species_all']['beta_reference'] = ((0.5*B_rat**2)/(n_rat*T_rat)) * self.output['input_gen']['BETAE']
+        self.ids.model.include_centrifugal_effects = False
+        self.ids.model.include_a_field_parallel = self.output['input_gen']['USE_BPER']
+        self.ids.model.include_b_field_parallel = self.output['input_gen']['USE_BPAR']
+        self.ids.model.include_full_curvature_drift = not self.output['input_gen']['USE_MHD_RULE']
+        self.ids.model.collisions_pitch_only = True
+        self.ids.model.collisions_momentum_conservation = False
+        self.ids.model.collisions_energy_conservation = False
+        self.ids.model.collisions_finite_larmor_radius = False
+        self.ids.model.non_linear_run = 0
+        
+        self.ids.species_all.beta_reference = self.output['input_gen']['BETAE']*(B_rat**2)/(1.5*n_rat*T_rat) 
         
         number_of_species = self.output['input_gen']['NS']
         
-# =============================================================================
-#         at 07/02/2023:
-#         Toroidal velocity implementation
-#         It still require some work for the normalisations
-#         Will be probably added in a next commit
-#
-#
-#         Vpar = []
-#         for i in range(number_of_species):
-#             Vpar.append(self.output['input_gen']['VPAR_'+str(i+1)])
-#         if all(x==Vpar[0] for x in Vpar):
-#             self.ids['species_all']['velocity_tor_norm'] = self.output['input_gen']['VPAR_1']*(v_thrat/L_rat)
-#         else:
-#             print('Warning: Wrong values for velocity_tor_norm. (All species are assumed to have\
-#                   \n a purely toroidal flow with a COMMON toroidal angular frequency)')
-#             self.ids['species_all']['velocity_tor_norm'] = []
-#         
-# =============================================================================
-        self.ids['species_all']['zeff'] = self.output['input_gen']['ZEFF']
-
-
-        self.ids['species'] = []
+        
+        Vpar = []
         for i in range(number_of_species):
-            dum = {}
-            dum['charge_norm'] = self.output['input_gen']['ZS_'+str(i+1)]*q_rat
-            dum['mass_norm'] = self.output['input_gen']['MASS_'+str(i+1)]*m_rat
-            dum['density_norm'] = self.output['input_gen']['AS_'+str(i+1)]*n_rat
-            dum['density_log_gradient_norm'] = self.output['input_gen']['RLNS_'+str(i+1)]/L_rat
-            dum['temperature_norm'] = self.output['input_gen']['TAUS_'+str(i+1)]*T_rat
-            dum['temperature_log_gradient_norm'] = self.output['input_gen']['RLTS_'+str(i+1)]/L_rat
-            self.ids['species'].append(dum)
+            Vpar.append(self.output['input_gen']['VPAR_'+str(i+1)])
+        if all(x==Vpar[0] for x in Vpar):
+            self.ids.species_all.velocity_tor_norm = self.output['input_gen']['SIGN_IT']*self.output['input_gen']['VPAR_1']*(v_thrat/L_rat)
+        else:
+            print('Warning: Wrong values for velocity_tor_norm. (All species are assumed to have\
+                  \n a purely toroidal flow with a COMMON toroidal angular frequency)')
+            self.ids.species_all.velocity_tor_norm = []
+        
+        self.ids.species_all.zeff = self.output['input_gen']['ZEFF']
+
+
+        for i in range(number_of_species):
+            dum=gkids.Species()
+            dum.charge_norm = self.output['input_gen']['ZS_'+str(i+1)]*q_rat
+            dum.mass_norm = self.output['input_gen']['MASS_'+str(i+1)]*m_rat
+            dum.density_norm = self.output['input_gen']['AS_'+str(i+1)]*n_rat
+            dum.density_log_gradient_norm = self.output['input_gen']['RLNS_'+str(i+1)]/L_rat
+            dum.temperature_norm = self.output['input_gen']['TAUS_'+str(i+1)]*T_rat
+            dum.temperature_log_gradient_norm = self.output['input_gen']['RLTS_'+str(i+1)]/L_rat
+            dum.velocity_tor_gradient_norm = self.output['input_gen']['VPAR_SHEAR_'+str(i+1)]/(L_rat)*v_thrat*self.output['input_gen']['SIGN_IT']
+            self.ids.species.append(dum)
             
-        self.ids['collisions'] = {}
         # Find electron/main ion index
-        mass_max = 0.
-        for i in range(len(self.ids['species'])):
-            charge = self.ids['species'][i]['charge_norm']
-            mass = self.ids['species'][i]['mass_norm']
+        density_max = 0.
+        for i in range(len(self.ids.species)):
+            charge = self.ids.species[i].charge_norm
+            density = self.ids.species[i].density_norm
             if charge < 0.:
                 index_electron = i
-            if mass > mass_max:
-                mass_max = mass
+            if (density > density_max) and (charge > 0.):
+                density_max = density
                 index_main_ion = i
-        self.ids['collisions']['collisionality_norm'] = np.full((len(self.ids['species']),len(self.ids['species'])),0.)
-        self.ids['collisions']['collisionality_norm'][index_electron][index_main_ion] = self.output['input_gen']['XNUE']*(v_thrat/L_rat)
-        
-    
-        self.ids['wavevector'] = []
+        self.ids.collisions.collisionality_norm = np.full((number_of_species,number_of_species),0.0)
+        self.ids.collisions.collisionality_norm[index_electron][index_main_ion] = self.output['input_gen']['XNUE']*(v_thrat/L_rat)
+
+
         number_of_ky = len(self.output['ky'])
         number_of_modes = self.output['input_gen']['NMODES']
-        Gq = get_metric(self.ids,np.linspace(0,2*np.pi,501))['Gq'][0]
+        
+        metric = get_metric_idspy(self.ids,np.linspace(0,2*np.pi,501))
+        Gq = metric['Gq'][0]
+        gradr = metric['grad_r'][0]
         
         # compute theta_imas=f(theta_tglf)
         try:
@@ -1504,161 +1867,195 @@ class TGLF(DataSpine):
         except:
             th_sorted = []
         # eigenfunctions normalisations
-        tglf_eigenfunctions = {}
-        imas_eigenfunctions = {}
-        imas_eigenfunctions['phi'], imas_eigenfunctions['Bper'], imas_eigenfunctions['Bpar'] = np.zeros((3,len(th_sorted)))
-        try:
-            for fields_ in fields_list:
-                tglf_eigenfunctions[fields_] = self.output['eigenfunctions'][list(self.output['eigenfunctions'].keys())[-1]][fields_][1]
-                if fields_ == 'phi':
-                    imas_eigenfunctions[fields_] = tglf_eigenfunctions[fields_] * ((T_rat*rho_rat )/(q_rat*L_rat))
-                elif fields_ == 'Bper':
-                    imas_eigenfunctions[fields_] = tglf_eigenfunctions[fields_] * ((B_rat*rho_rat**2 )/(L_rat))
-                elif fields_ == 'Bpar':
-                    imas_eigenfunctions[fields_] = tglf_eigenfunctions[fields_] * ((B_rat*rho_rat )/(L_rat))
-                if self.output['input_gen']['SIGN_BT']*self.output['input_gen']['SIGN_IT']==1: # take complex conjugate if zeta and y in opposite directions
-                  imas_eigenfunctions[fields_]=np.conj(imas_eigenfunctions[fields_])
+        imas_eigenfunctions_mode=[]
+        rotate_factor_mode=[]
+        amp_rat_mode=[]
+        for i in range(number_of_modes):
+            tglf_eigenfunctions = {}
+            imas_eigenfunctions = {}
+            imas_eigenfunctions['phi'], imas_eigenfunctions['Bper'], imas_eigenfunctions['Bpar'] = np.zeros((3,len(th_sorted)))
+            try:
+                for fields_ in fields_list:
+                    tglf_eigenfunctions[fields_] = self.output['eigenfunctions'][list(self.output['eigenfunctions'].keys())[-1]][fields_][i+1]
+                    if fields_ == 'phi':
+                        imas_eigenfunctions[fields_] = tglf_eigenfunctions[fields_] * ((T_rat*rho_rat )/(q_rat*L_rat))
+                    elif fields_ == 'Bper':
+                        imas_eigenfunctions[fields_] = tglf_eigenfunctions[fields_] * ((B_rat*rho_rat**2 )/(L_rat))
+                    elif fields_ == 'Bpar':
+                        imas_eigenfunctions[fields_] = tglf_eigenfunctions[fields_] * ((B_rat*rho_rat )/(L_rat))
+                    if self.output['input_gen']['SIGN_BT']*self.output['input_gen']['SIGN_IT']==1: # take complex conjugate if zeta and y in opposite directions
+                      imas_eigenfunctions[fields_]=np.conj(imas_eigenfunctions[fields_])
+                
+                # rotate and normalise eigenfunctions
+                # rotate_factor=exp(i*alpha) in IMAS documentation
+                th_fine = np.linspace(th_sorted[0],th_sorted[-1],len(th_sorted)*10)
+                f_re=interp1d(th_sorted,np.real(imas_eigenfunctions['phi']),kind='cubic')
+                f_im=interp1d(th_sorted,np.imag(imas_eigenfunctions['phi']),kind='cubic')
+                Imax=np.argmax(np.abs(f_re(th_fine) + 1j*f_im(th_fine)))
+                rotate_factor = f_re(th_fine)[Imax] + 1j*f_im(th_fine)[Imax]
+                rotate_factor = abs(rotate_factor)/rotate_factor
+                # mode amplitude 
+    
+                # amp_rat = np.sqrt(np.trapz(np.abs(tglf_eigenfunctions['phi'])**2,th_tglf)) * np.sqrt(2)/(np.sqrt(np.trapz(np.abs(imas_eigenfunctions['phi'])**2 
+                #                                               + np.abs(imas_eigenfunctions['Bper'])**2 
+                #                                               + np.abs(imas_eigenfunctions['Bpar'])**2,th_sorted)))
+                
+                                                                                  
+                amp_rat = np.sqrt(2*np.pi)/(np.sqrt(np.trapz(np.abs(imas_eigenfunctions['phi'])**2 
+                                                              + np.abs(imas_eigenfunctions['Bper'])**2 
+                                                              + np.abs(imas_eigenfunctions['Bpar'])**2,th_tglf)))
+                
+                
+                
+            except:
+                if (not self.output['input_gen']['USE_TRANSPORT_MODEL']) :
+                    if verbose:
+                        print('Warning, no wavefunctions to read for the file: ' + self.metadata['run_path'].split('/')[-2])
+                rotate_factor = 1.
+                amp_rat = 1.
             
-            # rotate and normalise eigenfunctions
-            # rotate_factor=exp(i*alpha) in IMAS documentation
-            th_fine = np.linspace(th_sorted[0],th_sorted[-1],len(th_sorted)*10)
-            f_re=interp1d(th_sorted,np.real(imas_eigenfunctions['phi']),kind='cubic')
-            f_im=interp1d(th_sorted,np.imag(imas_eigenfunctions['phi']),kind='cubic')
-            Imax=np.argmax(np.abs(f_re(th_fine) + 1j*f_im(th_fine)))
-            rotate_factor = f_re(th_fine)[Imax] + 1j*f_im(th_fine)[Imax]
-            rotate_factor = abs(rotate_factor)/rotate_factor
-            # mode amplitude 
-            amp_rat = np.sqrt(2*np.pi)/(np.sqrt(np.trapz(np.abs(imas_eigenfunctions['phi'])**2 
-                                                         + np.abs(imas_eigenfunctions['Bper'])**2 
-                                                         + np.abs(imas_eigenfunctions['Bpar'])**2,th_sorted)))
-        except:
-            if (not self.output['input_gen']['USE_TRANSPORT_MODEL']) :
-                if verbose:
-                    print('Warning, no wavefunctions to read for the file: ' + self.metadata['run_path'].split('/')[-2])
-            rotate_factor = 1.
-            amp_rat = 1.
+            imas_eigenfunctions_mode.append(imas_eigenfunctions)
+            rotate_factor_mode.append(rotate_factor)
+            amp_rat_mode.append(amp_rat)
 
         for i in range(number_of_ky):
-            wave = {}
-            wave['radial_component_norm'] = self.output['input_gen']['KX0_LOC']*self.output['ky'][i]*(1/rho_rat) 
-            wave['binormal_component_norm'] = self.output['ky'][i]*abs(Gq)*(1/rho_rat) 
-            wave['eigenmode'] = []
+            wave = gkids.Wavevector()
+            wave.radial_component_norm = self.output['input_gen']['KX0_LOC']*self.output['ky'][i]*(1/rho_rat)*abs(gradr)
+            wave.binormal_component_norm = self.output['ky'][i]*abs(Gq)*(1/rho_rat) 
             for j in range(number_of_modes):
-                mode = {}
-                mode['growth_rate_norm'] = self.output['eigenvalues']['gamma'][j+1][i]*(v_thrat/L_rat)
-                mode['frequency_norm'] = self.output['eigenvalues']['omega'][j+1][i]*(v_thrat/L_rat)
-                mode['poloidal_angle'] = th_sorted
-                mode['growth_rate_tolerance'] = []
-                mode['phi_potential_perturbed_weight'] = []
-                mode['phi_potential_perturbed_parity'] = []
-                mode['a_field_parallel_perturbed_weight'] = []
-                mode['a_field_parallel_perturbed_parity'] = []
-                mode['b_field_parallel_perturbed_weight'] = []
-                mode['b_field_parallel_perturbed_parity'] = []
-                mode['phi_potential_perturbed_norm'] = imas_eigenfunctions['phi']*rotate_factor*amp_rat
-                mode['a_field_parallel_perturbed_norm'] = -1*imas_eigenfunctions['Bper']*rotate_factor*amp_rat
-                mode['b_field_parallel_perturbed_norm'] = -1*imas_eigenfunctions['Bpar']*rotate_factor*amp_rat
-                mode['time_norm'] = []
-                
-                mode['fluxes_moments'] = []
+                mode = gkids.Eigenmode()
+                mode.growth_rate_norm = self.output['eigenvalues']['gamma'][j+1][i]*(v_thrat/L_rat)
+                mode.frequency_norm = self.output['eigenvalues']['omega'][j+1][i]*(v_thrat/L_rat)
+                mode.poloidal_angle = th_sorted
+                mode.phi_potential_perturbed_norm = imas_eigenfunctions_mode[j]['phi']*rotate_factor_mode[j]*amp_rat_mode[j]
+                mode.a_field_parallel_perturbed_norm = -1*imas_eigenfunctions_mode[j]['Bper']*rotate_factor_mode[j]*amp_rat_mode[j]
+                mode.b_field_parallel_perturbed_norm = -1*imas_eigenfunctions_mode[j]['Bpar']*rotate_factor_mode[j]*amp_rat_mode[j]
+
                 for k in range(number_of_species):
-                    particle_flux_factor =  2.*((n_rat*v_thrat*rho_rat**2)/(L_rat**2)) * amp_rat**2 
-                    energy_flux_factor = 2.*((n_rat*v_thrat**T_rat*rho_rat**2)/(L_rat**2)) * amp_rat**2 
-                    momentum_flux_factor = 2.*((m_rat*n_rat*v_thrat**2*rho_rat**2)/(L_rat)) * amp_rat**2 
-                    species = {}
+                    particle_flux_factor =  2.*((n_rat*v_thrat*rho_rat**2)/(L_rat**2)) * amp_rat_mode[j]**2
+                    energy_flux_factor = 2.*((n_rat*v_thrat*T_rat*rho_rat**2)/(L_rat**2)) * amp_rat_mode[j]**2
+                    momentum_flux_factor = 2.*((m_rat*n_rat*v_thrat**2*rho_rat**2)/(L_rat**2)) * amp_rat_mode[j]**2
+                    if self.output['input_gen']['AS_'+str(k+1)] != 0.0:
+                        particle_flux_factor /= self.output['input_gen']['AS_'+str(k+1)]
+                        energy_flux_factor /= self.output['input_gen']['AS_'+str(k+1)]
+                        momentum_flux_factor /= self.output['input_gen']['AS_'+str(k+1)]
+                        
+                    dum = gkids.FluxesMoments()
+                    mode.fluxes_moments.append(dum)
+                    
+                    mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame = gkids.Fluxes()
                     
                     
-                     
-                    species['fluxes_norm_gyrocenter_rotating_frame'] = {}
-                    
-                    species['fluxes_norm_gyrocenter_rotating_frame']['particles_phi_potential'] = \
-                        particle_flux_factor * self.output['species'][k+1]['QL_weights']['Gamma']['phi'][j+1][-1]
+                
+                    mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.particles_phi_potential = \
+                        particle_flux_factor * self.output['species'][k+1]['QL_weights']['Gamma']['phi'][j+1][i]
                     
                     if self.output['input_gen']['USE_BPER']:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['particles_a_field_parallel'] = \
-                            particle_flux_factor * self.output['species'][k+1]['QL_weights']['Gamma']['Bper'][j+1][-1]
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.particles_a_field_parallel = \
+                            particle_flux_factor * self.output['species'][k+1]['QL_weights']['Gamma']['Bper'][j+1][i]
                     else:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['particles_a_field_parallel'] = []
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.particles_a_field_parallel = []
                     
                     if self.output['input_gen']['USE_BPAR']:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['particles_b_field_parallel'] = \
-                            particle_flux_factor * self.output['species'][k+1]['QL_weights']['Gamma']['Bpar'][j+1][-1]
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.particles_b_field_parallel = \
+                            particle_flux_factor * self.output['species'][k+1]['QL_weights']['Gamma']['Bpar'][j+1][i]
                     else:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['particles_b_field_parallel'] = []
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.particles_b_field_parallel = []
                     
                     
                     
-                    species['fluxes_norm_gyrocenter_rotating_frame']['energy_phi_potential'] = energy_flux_factor *\
-                        self.output['species'][k+1]['QL_weights']['Q']['phi'][j+1][-1]
+                    mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.energy_phi_potential = energy_flux_factor *\
+                        self.output['species'][k+1]['QL_weights']['Q']['phi'][j+1][i]
                     
                     if self.output['input_gen']['USE_BPER']:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['energy_a_field_parallel'] = energy_flux_factor *\
-                            self.output['species'][k+1]['QL_weights']['Q']['Bper'][j+1][-1]
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.energy_a_field_parallel = energy_flux_factor *\
+                            self.output['species'][k+1]['QL_weights']['Q']['Bper'][j+1][i]
                     else:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['energy_a_field_parallel'] = []
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.energy_a_field_parallel = []
                         
                     if self.output['input_gen']['USE_BPAR']:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['energy_b_field_parallel'] = energy_flux_factor *\
-                            self.output['species'][k+1]['QL_weights']['Q']['Bpar'][j+1][-1]
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.energy_b_field_parallel = energy_flux_factor *\
+                            self.output['species'][k+1]['QL_weights']['Q']['Bpar'][j+1][i]
                     else:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['energy_b_field_parallel'] = []
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.energy_b_field_parallel = []
                     
                     
                     
-                    species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_phi_potential'] = momentum_flux_factor *\
-                        self.output['species'][k+1]['QL_weights']['Pi_par']['phi'][j+1][-1]
+                    mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.momentum_tor_parallel_phi_potential = momentum_flux_factor *\
+                        self.output['species'][k+1]['QL_weights']['Pi_par']['phi'][j+1][i]
                     
                     if self.output['input_gen']['USE_BPER']:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_a_field_parallel'] = momentum_flux_factor *\
-                            self.output['species'][k+1]['QL_weights']['Pi_par']['Bper'][j+1][-1]
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.momentum_tor_parallel_a_field_parallel = momentum_flux_factor *\
+                            self.output['species'][k+1]['QL_weights']['Pi_par']['Bper'][j+1][i]
                     else:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_a_field_parallel'] = []
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.momentum_tor_parallel_a_field_parallel = []
                     
                     if self.output['input_gen']['USE_BPAR']:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_b_field_parallel'] = momentum_flux_factor *\
-                            self.output['species'][k+1]['QL_weights']['Pi_par']['Bpar'][j+1][-1]
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.momentum_tor_parallel_b_field_parallel = momentum_flux_factor *\
+                            self.output['species'][k+1]['QL_weights']['Pi_par']['Bpar'][j+1][i]
                     else:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_parallel_b_field_parallel'] = []
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.momentum_tor_parallel_b_field_parallel = []
                     
                     
                     
-                    species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_phi_potential'] = momentum_flux_factor *\
-                        self.output['species'][k+1]['QL_weights']['Pi_tor']['phi'][j+1][-1]
+                    mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.momentum_tor_perpendicular_phi_potential = momentum_flux_factor *\
+                        (self.output['species'][k+1]['QL_weights']['Pi_tor']['phi'][j+1][i]-self.output['species'][k+1]['QL_weights']['Pi_par']['phi'][j+1][i])
                     
                     if self.output['input_gen']['USE_BPER']:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_a_field_parallel'] = momentum_flux_factor *\
-                            self.output['species'][k+1]['QL_weights']['Pi_tor']['Bper'][j+1][-1]
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.momentum_tor_perpendicular_a_field_parallel = momentum_flux_factor *\
+                            (self.output['species'][k+1]['QL_weights']['Pi_tor']['Bper'][j+1][i]-self.output['species'][k+1]['QL_weights']['Pi_par']['Bper'][j+1][i])
                     else:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_a_field_parallel'] = []
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.momentum_tor_perpendicular_a_field_parallel = []
                     
                     if self.output['input_gen']['USE_BPAR']:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_b_field_parallel'] = momentum_flux_factor *\
-                            self.output['species'][k+1]['QL_weights']['Pi_tor']['Bpar'][j+1][-1]
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.momentum_tor_perpendicular_b_field_parallel = momentum_flux_factor *\
+                            (self.output['species'][k+1]['QL_weights']['Pi_tor']['Bpar'][j+1][i]-self.output['species'][k+1]['QL_weights']['Pi_par']['Bpar'][j+1][i])
                     else:
-                        species['fluxes_norm_gyrocenter_rotating_frame']['momentum_tor_perpendicular_b_field_parallel'] = []
+                        mode.fluxes_moments[k].fluxes_norm_gyrocenter_rotating_frame.momentum_tor_perpendicular_b_field_parallel = []
                     
                     
-                    mode['fluxes_moments'].append(species)
-                wave['eigenmode'].append(mode)
-            self.ids['wavevector'].append(wave)
+                wave.eigenmode.append(mode)
+            self.ids.wavevector.append(wave)
         
-        self.ids['fluxes_integrated_norm'] = []
-        
-        self.ids['code'] = {}
-        self.ids['code']['name'] = 'TGLF'
-        self.ids['code']['commit'] = self.metadata['version']
-        self.ids['code']['version'] = self.metadata['framework_version']
-        self.ids['code']['repository'] = 'https://gafusion.github.io/doc/tglf.html'
-        self.ids['code']['parameters'] = []
-        self.ids['code']['output_flag'] = []
-        self.ids['code']['library'] = []
-        
-        self.ids['time'] = []
-        
+        fluxes={'name': ('particles','momentum_parallel','heat'),
+                'field': ('phi','apar','bpar'),
+                'is_field': (True,self.output['input_gen']['USE_BPER'],self.output['input_gen']['USE_BPAR']),
+                'imas_name': ('particles_phi_potential','momentum_tor_parallel_phi_potential','energy_phi_potential',
+                              'particles_a_field_parallel','momentum_tor_parallel_a_field_parallel','energy_a_field_parallel',
+                              'particles_b_field_parallel','momentum_tor_parallel_b_field_parallel','energy_b_field_parallel'),
+                'common_norm_fac': (rho_rat/L_rat)**2*v_thrat*n_rat,
+                'norm_fac': (np.ones(number_of_species),m_rat*L_rat*v_thrat*np.ones(number_of_species),T_rat*np.ones(number_of_species))
+               }
+#       ATTENTION!!!! POUR L INSTANT JE MET LA SOMME DE TOUT DANS phi
+        n_name=len(fluxes['name'])
+        tglf_flux_name = ['Gamma','Pi','Q']
+        tglf_field_name = ['phi','Bper','Bpar']
+        for ii_sp in range(number_of_species):
+          dum = gkids.Fluxes()
+          if self.output['input_gen']['AS_'+str(ii_sp+1)] != 0.0:
+              density_norm_factor = 1.0#self.output['input_gen']['AS_'+str(ii_sp+1)]
+          else:
+              density_norm_factor = 1.0
+          for ii, field in enumerate(tglf_field_name):
+            for jj, name in enumerate(tglf_flux_name):
+              if fluxes['is_field'][ii]:
+                  tglf_flux = self.output['species'][ii_sp+1]['fluxes'][name]['total']
+                  #setattr(dum,fluxes['imas_name'][ii*n_name+jj],tglf_flux*fluxes['common_norm_fac']*fluxes['norm_fac'][jj][ii_sp])
+                  if ii == 0.: # Everything is stored in phi
+                      setattr(dum,fluxes['imas_name'][jj],tglf_flux*fluxes['common_norm_fac']*fluxes['norm_fac'][jj][ii_sp]/density_norm_factor)
+                  else:
+                      setattr(dum,fluxes['imas_name'][ii*n_name+jj],0.0)
+              else:
+                print("Missing data, can not convert lab frame "+field+" "+name+" flux to IMAS for species "+str(ii_sp))
+          self.ids.fluxes_integrated_norm.append(dum)
+            
+              
+        self.ids.code.name = 'TGLF'
+        self.ids.code.commit = self.metadata['version']
+        self.ids.code.version = self.metadata['framework_version']
+        self.ids.code.repository = 'https://gafusion.github.io/doc/tglf.html'       
+        # ajouter les inputs de TGLF
         return
-        
-        
-
 
 
 
@@ -1702,7 +2099,10 @@ class TGLF(DataSpine):
             commands = '; '.join(bash_init_gacode+bash)
         else:
             commands = '; '.join(bash)
-
+        
+        # delete the out.tglf.wavefunction files to prevent issues when overwriting data
+        for filename in glob.glob(path+"out.tglf.wavefunction*"):
+            os.remove(filename)
         # run TGLF
         execution = os.popen(commands)
 
@@ -1831,7 +2231,7 @@ class TGLF(DataSpine):
                         'out.tglf.spectral_shift':{'method':self.read_spectral_shift,'essential':False},
                         'out.tglf.sum_flux_spectrum':{'method':self.read_sum_flux_spectrum,'essential':True},
                         'out.tglf.temperature_spectrum':{'method':self.read_temperature_spectrum,'essential':False},
-                        'out.tglf.width_spectrum':{'method':self.read_width_spectrum,'essential':False}}
+                        'out.tglf.width_spectrum':{'method':self.read_width_spectrum,'essential':True}}
 
         # read all the files present in the specified run path, taking into account essential status
         for file in output_files.keys():
